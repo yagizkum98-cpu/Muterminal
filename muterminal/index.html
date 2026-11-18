@@ -1,0 +1,125 @@
+﻿<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MuTerminal | Pilot MVP</title>
+  <style>
+    body { font: 15px system-ui; background: #f3f6f5; color: #18352d; margin: 0; }
+    header { background: #124c39; color: white; padding: 25px 5%; }
+    main { max-width: 1150px; margin: 25px auto; padding: 0 16px; }
+    .cards, .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr)); gap: 12px; }
+    .card, section { background: white; border: 1px solid #dce7e0; border-radius: 13px; padding: 17px; margin-bottom: 16px; }
+    .card b { font-size: 28px; display: block; }
+    input, select, textarea, button { font: inherit; padding: 10px; border: 1px solid #cadbd0; border-radius: 8px; }
+    button { background: #126847; color: white; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+    .modules { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+    .modules button, button.secondary { color: #124c39; background: #fff; }
+    .modules [aria-pressed="true"] { background: #124c39; color: white; }
+    .module-header h2 { margin: 0 0 6px; }
+    .module-header p { margin: 8px 0; }
+    .safety { border-left: 4px solid #ad7b24; padding-left: 10px; }
+    .risk { display: block; margin-top: 6px; }
+    .details { min-width: 180px; }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    table { border-collapse: collapse; width: 100%; min-width: 750px; }
+    td, th { text-align: left; padding: 12px; border-bottom: 1px solid #e7eee9; overflow-wrap: anywhere; }
+    th { background: #f2f8f4; }
+    .scroll { overflow: auto; }
+    .tag { padding: 4px 8px; border-radius: 20px; background: #e7f1eb; display: inline-block; }
+    .warn { background: #fff1d4; }
+    .danger { background: #fbe5e4; }
+    label { display: block; margin: 12px 0 5px; }
+    .fields input, .fields select { width: 100%; box-sizing: border-box; }
+    textarea { width: 100%; box-sizing: border-box; min-height: 75px; }
+    small { color: #60796c; }
+    footer { padding: 20px; text-align: center; color: #637d70; }
+    #sync-status:empty, .status:empty { display: none; }
+    .error { color: #a12020; }
+  </style>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>MuTerminal <small style="color: #bfe2ce">MVP</small></h1>
+    <p>FİLE Market pilotu · Ürün karar ve depo operasyon merkezi</p>
+  </header>
+  <main>
+    <p id="sync-status" role="status">Kayıtlar yükleniyor…</p>
+    <div class="cards" id="stats"></div>
+    <nav id="modules" class="modules" aria-label="Operasyon modülleri"></nav>
+    <section class="module-header" aria-labelledby="module-title">
+      <small id="module-feature"></small>
+      <h2 id="module-title">Operasyon modülleri</h2>
+      <p id="module-description"></p>
+      <p class="safety">Satış ön onayı yalnızca MuTerminal’de kayda geçer. RKS blokajının kaldırılması, SKT uygunluğu ve stok hareketleri yetkili sistemlerde ayrıca doğrulanmalıdır.</p>
+    </section>
+    <section id="entry-panel" hidden>
+      <h2 id="entry-title">Manuel ürün kaydı</h2>
+      <form id="product-form">
+        <div class="fields">
+          <div><label for="name">Ürün adı</label><input id="name" name="name" maxlength="150" required></div>
+          <div><label for="code">Barkod</label><input id="code" name="code" maxlength="80" required></div>
+          <div><label for="lot">Lot</label><input id="lot" name="lot" maxlength="80" required></div>
+          <div id="quantity-field"><label for="qty" id="quantity-label">Adet</label><input id="qty" name="qty" type="number" min="1" step="1" required></div>
+        </div>
+        <div class="fields" id="operation-fields"></div>
+        <p id="stock-preview" role="status" hidden></p>
+        <label id="expired-field"><input id="expired" name="expired" type="checkbox"> Son kullanma tarihi geçmiş</label>
+        <p><button type="submit" id="save-product">Ürünü kaydet</button> <button type="button" class="secondary" id="cancel-edit" hidden>Vazgeç</button></p>
+        <p id="product-status" class="status" role="status"></p>
+      </form>
+    </section>
+    <section id="records-panel" hidden>
+      <h2>Operasyon kayıtları</h2>
+      <div class="toolbar">
+        <input id="search" placeholder="Ürün, barkod, lot ara" aria-label="Ürün, barkod, lot ara">
+      </div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Ürün</th><th>Barkod / Lot</th><th id="quantity-column">Adet</th><th>Operasyon bilgisi</th><th>Durum ve risk</th><th>İşlem</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section id="decision" hidden>
+      <h2>Manuel ürün kararı <small>MuDecision</small></h2>
+      <p id="selected"></p>
+      <form id="decision-form">
+        <label for="staff">Yetkili personel</label>
+        <input id="staff" name="staff" maxlength="100" required>
+        <label for="choice">Karar</label>
+        <select id="choice" name="choice" required></select>
+        <div id="destination-field" hidden>
+          <label for="destination">Varış noktası</label>
+          <input id="destination" name="destination" maxlength="150" disabled>
+        </div>
+        <label for="reason">Karar gerekçesi</label>
+        <textarea id="reason" name="reason" placeholder="Kontrol sonucu ve gerekçe" maxlength="1000" required></textarea>
+        <p><button type="submit">Kararı kaydet</button> <small>Karar kayıtları ERP stok durumunu değiştirmez.</small></p>
+        <p id="decision-status" class="status" role="status"></p>
+      </form>
+    </section>
+    <section id="history-panel" hidden>
+      <h2>Karar kayıtları</h2>
+      <div class="toolbar">
+        <input id="history-search" placeholder="Ürün, lot, personel, sonuç ara" aria-label="Karar geçmişinde ara">
+        <input id="history-date" type="date" aria-label="Karar tarihi">
+        <select id="history-operation" aria-label="Kararların operasyonu"></select>
+        <button id="clear-lot" type="button" class="secondary" hidden>Lot filtresini kaldır</button>
+        <button id="export" type="button" disabled>JSON dışa aktar</button>
+      </div>
+      <p id="lot-filter" hidden></p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Tarih</th><th>Ürün / Lot</th><th>Operasyon</th><th>Personel</th><th>Karar ve gerekçe</th><th>Sonuç</th></tr></thead>
+          <tbody id="history"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <footer>MuTerminal · Pilot uygulama</footer>
+</body>
+</html>
