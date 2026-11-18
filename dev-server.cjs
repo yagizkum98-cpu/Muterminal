@@ -2,7 +2,7 @@ const { readFile } = require('node:fs/promises');
 const { createServer } = require('node:http');
 const { join } = require('node:path');
 const { MongoClient, ObjectId } = require('mongodb');
-const { operations, saleApproval } = require('./operations.cjs');
+const { operations, saleApproval, assessments } = require('./operations.cjs');
 
 const host = '127.0.0.1';
 const port = Number(process.env.PORT ?? 4173);
@@ -150,6 +150,7 @@ function productRisk(product, now) {
 function availableActions(product, risk, now) {
   if (!product.details) return [];
   return operations[product.type].actions.filter(action => (
+    action.choice !== saleApproval &&
     (!action.from || action.from.includes(product.status)) &&
     (!action.guarded || !risk?.blocks) &&
     (!action.releaseTemporary || (product.locked && temporaryBlockEnded(product, now)))
@@ -175,7 +176,8 @@ async function state() {
     const lotRisk = lotRisks.get(JSON.stringify([product.code, product.lot]));
     const risk = chooseRisk(ownRisk, lotRisk);
     const actions = availableActions(product, risk, now);
-    products.push({ id, ...product, risk, actions });
+    const assessmentActions = assessments.filter(action => !action.guarded || !risk?.blocks);
+    products.push({ id, ...product, risk, actions, assessmentActions });
     const { name, code, lot, type } = product;
     for (const decision of decisions) {
       logs.push({ id, name, code, lot, type, result: decision.choice, ...decision });
@@ -194,12 +196,15 @@ function chooseRisk(ownRisk, lotRisk) {
 async function saveDecision(id, body) {
   const staff = requiredText(body, 'staff', 'Personel', 100);
   const reason = requiredText(body, 'reason', 'Gerekçe', 1000);
-  const { choice } = body;
+  const { choice, kind } = body;
+  if (kind !== undefined && kind !== 'assessment') throw new RequestError(400, 'Geçersiz karar türü.');
+  const isAssessment = kind === 'assessment';
   const filter = { _id: new ObjectId(id) };
   const product = await records.findOne(filter);
   if (!product) throw new RequestError(404, 'Ürün kaydı bulunamadı.');
-  const option = product.details && operations[product.type].actions.find(action => action.choice === choice);
-  const action = option || (!product.details && legacyChoices.has(choice) ? { choice, guarded: choice === saleApproval } : null);
+  const action = isAssessment
+    ? assessments.find(option => option.choice === choice)
+    : operationAction(product, choice);
   if (!action) throw new RequestError(400, 'Bu operasyon için geçerli bir karar seçin.');
   const now = currentMinute();
   if (action.guarded) {
@@ -218,8 +223,9 @@ async function saveDecision(id, body) {
   }
   const status = action.result ?? choice;
   filter.details = product.details ? { $exists: true } : { $exists: false };
-  const update = { status };
+  const update = isAssessment ? { assessment: status } : { status };
   const decision = { time: new Date(), choice, result: status, staff, reason };
+  if (isAssessment) decision.kind = kind;
   if (action.releaseTemporary) {
     if (!product.locked || !temporaryBlockEnded(product, now)) {
       throw new RequestError(409, 'Geçici blokaj ancak bitiş zamanı dolduğunda kaldırılabilir.');
@@ -238,6 +244,11 @@ async function saveDecision(id, body) {
   if (!result.matchedCount) {
     throw new RequestError(409, 'Kayıt durumu değişti. Güncel kaydı kontrol edin.');
   }
+}
+
+function operationAction(product, choice) {
+  if (product.details) return operations[product.type].actions.find(action => action.choice === choice);
+  if (legacyChoices.has(choice)) return { choice, guarded: choice === saleApproval };
 }
 
 async function completeDetails(id, body) {

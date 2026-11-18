@@ -1,6 +1,6 @@
-# MuTerminal MVP
+# MuTerminal Core · Aşama 1
 
-FİLE Market için önerilen bağımsız pilot prototip.
+FİLE Market için 0–3 aylık, tek mağazalı MVP pilotu. Temel operasyonları ve gerekçeli manuel kararları kaydeder.
 
 ## Çalıştırma
 MongoDB çalışırken proje kökünde `yarn install` ve `yarn dev` çalıştırın. Ardından tarayıcıda `http://127.0.0.1:4173` adresini açın.
@@ -8,16 +8,17 @@ Sunucu varsayılan olarak `mongodb://127.0.0.1:27017` adresindeki `muterminal` v
 
 ## Operasyon modülleri
 
-- **RKS Blokaj · MuRisk** — Blokaj nedeni, inceleme kararı ve blokaj kaldırma talebi.
-- **Delist Blokaj · MuRisk** — Listeden çıkarma nedeni, blokaj durumu ve inceleme kararı.
-- **Geçici Blokaj · MuRisk** — Blokaj nedeni ve Türkiye saatiyle bitiş. Süre dolunca **Blokajı kaldır** ile karar gerekçesi kaydedilir ve geçici blokaj kaydı **Normal** durumuna geçer.
-- **SKT Kontrol · MuRisk** — Lot ve son kullanma tarihi, yaklaşan veya geçmiş tarih göstergesi, ayırma ve iade kararı.
+- **RKS Blokaj · MuBlock** — Blokaj nedeni, inceleme kararı ve blokaj kaldırma talebi.
+- **Delist Blokaj · MuBlock** — Listeden çıkarma nedeni, blokaj durumu ve inceleme kararı.
+- **Geçici Blokaj · MuBlock** — Blokaj nedeni ve Türkiye saatiyle bitiş. Süre dolunca **Blokajı kaldır** ile karar gerekçesi kaydedilir ve geçici blokaj kaydı **Normal** durumuna geçer.
+- **SKT Kontrol · MuExpiry** — Lot ve son kullanma tarihi, yaklaşan veya geçmiş tarih göstergesi, ayırma ve iade kararı.
 - **Depo İade · MuReturn** — İade gerekçesi ve miktarı, gönderim, teslim ve sorun takibi.
 - **Depo Fark · MuDifference** — Sistem stoku ile fiziksel sayım karşılaştırması, düzeltme talebi ve onay veya ret.
 - **Cross-Dock · MuDock** — Sevkiyata uygunluk değerlendirmesi ve uygun lot için varış noktası.
-- **Karar Geçmişi · MuTrace** — Ürün ve lot bazında tarih, beyan edilen personel, gerekçe ve sonuç. Tarih ve operasyon filtresi, arama ve JSON dışa aktarımı.
+- **MuDecision** — Satılabilir (ön onay), Satılamaz veya İncelemede değerlendirmesi. Son değerlendirme ürün satırında operasyon durumuyla birlikte görünür.
+- **Karar Geçmişi · MuLog** — Ürün ve lot bazında tarih, beyan edilen personel, gerekçe ve sonuç. Tarih ve operasyon filtresi, arama ve JSON dışa aktarımı.
 
-MuDecision, operasyon kararlarını gerekçeleriyle MongoDB'de saklar. Değişiklikler açık sekmelerde otomatik güncellenir. Eski kayıtların eksik operasyon alanları **Bilgileri tamamla** ile doldurulabilir. Önceki kararlar geçmişte saklanır.
+Operasyon kararları ve satılabilirlik değerlendirmeleri gerekçeleriyle MongoDB'de saklanır. Değişiklikler açık sekmelerde otomatik güncellenir. Eski kayıtların eksik operasyon alanları **Bilgileri tamamla** ile doldurulabilir. Önceki kararlar geçmişte saklanır.
 
 Satış ön onayı MuTerminal’de kaydedilir. RKS blokajının kaldırılması, SKT uygunluğu ve stok hareketleri yetkili sistemlerde ayrıca doğrulanmalıdır.
 

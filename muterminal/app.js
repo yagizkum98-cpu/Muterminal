@@ -15,6 +15,7 @@ let entryRevision = 0;
 let products = [];
 let logs = [];
 let currentId = null;
+let decisionKind;
 let refreshId = 0;
 let lastState;
 
@@ -39,16 +40,20 @@ function renderDetails(product) {
 
 function rowActions(product) {
   const id = escapeHtml(product.id);
-  const actions = [`<button type="button" class="secondary" data-action="trace" data-id="${id}">Lot geçmişi</button>`];
+  const actions = [];
   if (!product.details) {
-    actions.unshift(`<button type="button" data-action="edit" data-id="${id}">Bilgileri tamamla</button>`);
+    actions.push(`<button type="button" data-action="edit" data-id="${id}">Bilgileri tamamla</button>`);
   } else if (product.type === 'Geçici Blokaj' && product.locked) {
     const available = product.actions.some(action => action.releaseTemporary);
     const disabled = available ? '' : ' disabled title="Blokaj bitiş zamanı henüz dolmadı"';
-    actions.unshift(`<button type="button" data-action="release" data-id="${id}"${disabled}>Blokajı kaldır</button>`);
+    actions.push(`<button type="button" data-action="release" data-id="${id}"${disabled}>Blokajı kaldır</button>`);
   } else if (product.actions.length) {
-    actions.unshift(`<button type="button" data-action="decide" data-id="${id}">Karar ver</button>`);
+    actions.push(`<button type="button" data-action="decide" data-id="${id}">Operasyon kararı</button>`);
   }
+  actions.push(
+    `<button type="button" class="secondary" data-action="assessment" data-id="${id}">Satılabilirlik kararı</button>`,
+    `<button type="button" class="secondary" data-action="trace" data-id="${id}">Lot geçmişi</button>`,
+  );
   return actions.join('');
 }
 
@@ -66,6 +71,7 @@ function renderRows() {
       <td class="details">${renderDetails(product)}</td>
       <td>
         <span class="tag">${escapeHtml(product.status)}</span>
+        ${product.assessment ? `<small class="risk">MuDecision · ${escapeHtml(product.assessment)}</small>` : ''}
         ${product.risk ? `<small class="risk tag ${escapeHtml(product.risk.level)}">${escapeHtml(product.risk.label)}</small>` : ''}
       </td>
       <td><div class="actions">${rowActions(product)}</div></td>
@@ -89,7 +95,7 @@ function renderHistory() {
       <td>${escapeHtml(log.name)}<br><small>${escapeHtml(log.code)} · ${escapeHtml(log.lot)}</small></td>
       <td>${escapeHtml(operations[log.type].title)}</td>
       <td>${escapeHtml(log.staff)}</td>
-      <td>${escapeHtml(log.choice)}<br><small>${escapeHtml(log.reason)}</small></td>
+      <td>${log.kind === 'assessment' ? '<small>MuDecision</small><br>' : ''}${escapeHtml(log.choice)}<br><small>${escapeHtml(log.reason)}</small></td>
       <td>${escapeHtml(log.result)}${log.destination ? `<br><small>${escapeHtml(log.destination)}</small>` : ''}</td>
     </tr>`).join('') || '<tr><td colspan="6">Karar kaydı bulunamadı</td></tr>';
 }
@@ -133,7 +139,7 @@ function selectModule(type, product) {
     button.setAttribute('aria-pressed', String(button.dataset.module === type));
   }
   const module = isHistory ? {
-    title: 'Karar Geçmişi', feature: 'MuTrace',
+    title: 'Karar Geçmişi', feature: 'MuLog',
     description: 'Kullanıcı, tarih, ürün, lot, gerekçe ve sonuç bazında kararları inceleyin.',
   } : operations[type];
   $('module-title').textContent = module.title;
@@ -240,7 +246,7 @@ $('product-form').addEventListener('submit', async event => {
 function updateDestination() {
   const product = products.find(item => item.id === currentId);
   const action = product?.actions.find(item => item.choice === $('choice').value);
-  const required = Boolean(action?.destination);
+  const required = decisionKind !== 'assessment' && Boolean(action?.destination);
   $('destination-field').hidden = !required;
   $('destination').disabled = !required;
   $('destination').required = required;
@@ -248,7 +254,7 @@ function updateDestination() {
 
 function renderDecisionChoices(product) {
   const previous = $('choice').value;
-  const actions = product?.actions ?? [];
+  const actions = (decisionKind === 'assessment' ? product?.assessmentActions : product?.actions) ?? [];
   $('choice').innerHTML = '<option value="">Karar seçin</option>' + actions.map(action => (
     `<option>${escapeHtml(action.choice)}</option>`
   )).join('');
@@ -273,6 +279,8 @@ $('rows').addEventListener('click', event => {
   }
   if ($('decision-form').querySelector('button').disabled) return;
   currentId = product.id;
+  decisionKind = button.dataset.action === 'assessment' ? 'assessment' : undefined;
+  $('decision-title').textContent = decisionKind ? 'MuDecision · Satılabilirlik kararı' : 'Operasyon kararı';
   $('selected').textContent = `${product.name} · ${operations[product.type].title} · ${product.lot}`;
   $('choice').value = '';
   $('reason').value = '';
@@ -296,7 +304,9 @@ $('decision-form').addEventListener('submit', async event => {
   button.disabled = true;
   showStatus('decision-status', 'Kaydediliyor…');
   try {
-    await post(`/api/products/${id}/decisions`, Object.fromEntries(new FormData(form)));
+    const body = Object.fromEntries(new FormData(form));
+    if (decisionKind) body.kind = decisionKind;
+    await post(`/api/products/${id}/decisions`, body);
     if (currentId === id) {
       $('decision').hidden = true;
       currentId = null;

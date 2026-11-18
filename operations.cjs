@@ -1,7 +1,12 @@
 const saleApproval = 'Satılabilir (ön onay)';
+const assessments = [
+  { choice: saleApproval, guarded: true },
+  { choice: 'Satılamaz' },
+  { choice: 'İncelemede' },
+];
 const operations = {
   'RKS Blokaj': {
-    title: 'RKS Blokaj', feature: 'MuRisk',
+    title: 'RKS Blokaj', feature: 'MuBlock',
     description: 'Blokaj nedenlerini inceleyin ve yetkili inceleme sonucunu kaydedin.',
     initial: 'Blokajlı', blockLabel: 'RKS blokajı',
     fields: [{ name: 'blockReason', label: 'Blokaj nedeni', type: 'text', max: 500 }],
@@ -12,7 +17,7 @@ const operations = {
     ],
   },
   'Delist Blokaj': {
-    title: 'Delist Blokaj', feature: 'MuRisk',
+    title: 'Delist Blokaj', feature: 'MuBlock',
     description: 'Listeden çıkarılan ürünlerin blokaj nedenini ve inceleme kararlarını kaydedin.',
     initial: 'Delist blokajlı', blockLabel: 'Delist blokajı',
     fields: [{ name: 'blockReason', label: 'Delist nedeni', type: 'text', max: 500 }],
@@ -22,7 +27,7 @@ const operations = {
     ],
   },
   'Geçici Blokaj': {
-    title: 'Geçici Blokaj', feature: 'MuRisk',
+    title: 'Geçici Blokaj', feature: 'MuBlock',
     description: 'Bitiş zamanı dolan blokajı kaldırarak kaydı Normal duruma alın.',
     initial: 'Geçici blokajlı', blockLabel: 'Geçici blokaj',
     fields: [
@@ -34,7 +39,7 @@ const operations = {
     ],
   },
   SKT: {
-    title: 'SKT Kontrol', feature: 'MuRisk',
+    title: 'SKT Kontrol', feature: 'MuExpiry',
     description: 'Lotun son kullanma tarihini kontrol edin, riskli ürünü ayırın veya iadeye yönlendirin.',
     initial: 'İnceleme',
     fields: [{ name: 'expiryDate', label: 'Son kullanma tarihi', type: 'date' }],
@@ -84,4 +89,4 @@ const operations = {
   },
 };
 
-module.exports = { operations, saleApproval };
+module.exports = { operations, saleApproval, assessments };
