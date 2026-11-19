@@ -5,7 +5,7 @@ import { getSession } from '../../server/application';
 import { scanEnabled } from '../../server/features';
 import styles from '../../components/StaffScan.module.css';
 
-interface Props { staff: string }
+interface Props { staff: string; initialBarcode: string; initialLot: string }
 
 interface Product {
   id: string; name: string; barcode: string; productCode: string; lot: string;
@@ -30,14 +30,18 @@ const rksOptions = { clear: 'Kontrol edildi, blokaj görülmedi', blocked: 'Blok
 const packagingOptions = { intact: 'Sağlam', damaged: 'Hasarlı', unknown: 'Kontrol edilemedi' };
 const dateTime = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' });
 
-export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res }) => {
+export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, query }) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!scanEnabled()) return { redirect: { destination: '/staff#muscan-durum', permanent: false } };
   const session = await getSession(req);
   if (session?.role !== 'staff') {
     return { redirect: { destination: session ? `/${session.role}` : '/?panel=staff#admin-giris', permanent: false } };
   }
-  return { props: { staff: session.displayName ?? session.email } };
+  return { props: {
+    staff: session.displayName ?? session.email,
+    initialBarcode: typeof query.code === 'string' ? query.code.slice(0, 80) : '',
+    initialLot: typeof query.lot === 'string' ? query.lot.slice(0, 80) : '',
+  } };
 };
 
 function formatDate(date: string | null) {
@@ -52,9 +56,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export default function StaffScan({ staff }: Props) {
+export default function StaffScan({ staff, initialBarcode, initialLot }: Props) {
   const [step, setStep] = useState(0);
-  const [barcode, setBarcode] = useState('');
+  const [barcode, setBarcode] = useState(initialBarcode);
   const [lookup, setLookup] = useState<Lookup | null>(null);
   const [productId, setProductId] = useState('');
   const [check, setCheck] = useState(emptyCheck);
@@ -110,7 +114,8 @@ export default function StaffScan({ staff }: Props) {
       if (!result.products.length) throw new Error('Bu mağazada barkod veya ürün kodu bulunamadı.');
       setLookup(result);
       if (example) setBarcode(result.products[0].barcode);
-      setProductId(result.products.length === 1 ? result.products[0].id : '');
+      const linkedLot = !example && barcode.trim() === initialBarcode && result.products.find(item => item.lot === initialLot);
+      setProductId(linkedLot ? linkedLot.id : result.products.length === 1 ? result.products[0].id : '');
       setCheck(emptyCheck);
       setChoice('');
       setReason('');
@@ -160,7 +165,7 @@ export default function StaffScan({ staff }: Props) {
       <div className={styles.wrap}>
         <div><h1>MuTerminal Scan</h1><p>{staff} · Personel paneli</p></div>
         <nav aria-label="Personel bağlantıları">
-          <a href="/staff">Core kayıtları</a><a href="#islem-gecmisim">İşlem geçmişim</a>
+          <a href="/staff">Core kayıtları</a><a href={product ? `/trace?code=${encodeURIComponent(product.barcode)}&lot=${encodeURIComponent(product.lot)}` : '/trace'}>MU TRACE</a><a href="#islem-gecmisim">İşlem geçmişim</a>
           <form method="post" action="/admin/logout"><button type="submit">Oturumu kapat</button></form>
         </nav>
       </div>

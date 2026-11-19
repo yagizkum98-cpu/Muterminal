@@ -52,6 +52,7 @@ export default function Landing({ role, loginTitle, error, passwordChanged, chal
         <h1>Operasyon kayıtları ve ürün kararları tek yerde</h1>
         <p>MuTerminal, mağaza ekiplerinin ürün ve lot bazında operasyonları takip etmesini, manuel kararları gerekçeleriyle kaydetmesini ve karar geçmişini incelemesini sağlar.</p>
         <a className="button hero-journey" href="#urun-akisi">Ürün akışını izle</a>
+        {' '}<a className="button hero-journey" href="/trace">MU TRACE</a>
       </div>
     </div>
     <div className="wrap modules-overview">

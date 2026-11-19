@@ -35,6 +35,7 @@ export default function Panel({ title, role, showScan }: Props) {
     </form>
   </header>
   <main>
+    <p><a className="scan-link" href="/trace">MU TRACE · Ürün izlenebilirliği</a></p>
     {role === 'staff' && (showScan
       ? <p><a className="scan-link" href="/staff/scan">MuTerminal Scan · Barkodla kontrol</a></p>
       : <aside className="scan-notice" id="muscan-durum" aria-labelledby="muscan-durum-title">

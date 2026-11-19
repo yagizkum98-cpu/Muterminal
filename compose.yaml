@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: muterminal
+      POSTGRES_USER: muterminal
+      POSTGRES_PASSWORD: ${MUTERMINAL_POSTGRES_PASSWORD:?Set MUTERMINAL_POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:${MUTERMINAL_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - muterminal-postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "muterminal", "-d", "muterminal"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  muterminal-postgres:

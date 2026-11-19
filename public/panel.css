@@ -70,3 +70,8 @@ footer img { width: 9rem; }
 .scan-notice p { margin: 0; }
 .approval-item:target, .approval-item:focus { border-radius: .4rem; outline: 2px solid #126847; outline-offset: 3px; scroll-margin-top: 1rem; }
 .scan-check-summary { overflow-wrap: anywhere; }
+.trace-record-link {
+  color: #075d48;
+  font-weight: 650;
+  white-space: nowrap;
+}

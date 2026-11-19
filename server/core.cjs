@@ -2,7 +2,7 @@ const { createHash, randomBytes, scrypt, timingSafeEqual } = require('node:crypt
 const { promisify } = require('node:util');
 const { operations, saleApproval, assessments } = require('../operations.cjs');
 
-function createCore(database, challenge, scanEnabled) {
+function createCore(database, challenge, scanEnabled, trace, traceAccess, traceControls) {
   const { Table, newRecordId, createSession, findSession, deleteSession, revokeSessions } = database;
   const { challengeImage, verifyChallenge } = challenge;
   const records = new Table('products');
@@ -61,6 +61,7 @@ function createCore(database, challenge, scanEnabled) {
     email: email.toLowerCase(), password, roles, canApprove, changeable, storeId: pilotStore.id,
   }]));
   let pilotAccountsReady;
+  let traceAccountsReady;
   const sessionCookie = 'muterminal_session';
   const sessionSeconds = 8 * 60 * 60;
   const landingLogin = '/#admin-giris';
@@ -117,11 +118,23 @@ function createCore(database, challenge, scanEnabled) {
     return hashText(JSON.stringify([account.passwordHash, account.salt, account.roles, account.canApprove, account.storeId, account.displayName])).toString('hex');
   }
 
+  function traceCredentialTag(account) {
+    return hashText(JSON.stringify(account)).toString('hex');
+  }
+
   async function getSession(request) {
     const token = sessionToken(request);
     if (!token) return;
     const stored = await findSession(token);
     if (!stored) return;
+    if (stored.payload.role === 'trace') {
+      const account = await traceAccess.activeTraceAccount(stored.payload.email);
+      if (account && stored.credential_tag === traceCredentialTag(account)) {
+        const { role, tenantId, storeId, warehouseId, control, review } = account;
+        return { ...stored.payload, scope: { role, tenantId, storeId, warehouseId, control, review } };
+      }
+      return;
+    }
     const account = await activeAccount(stored.payload.email);
     if (account && stored.credential_tag === credentialTag(account)) return stored.payload;
   }
@@ -164,6 +177,11 @@ function createCore(database, challenge, scanEnabled) {
         await adminLogin(request, response);
         return;
       }
+      if (path === '/api/trace/login' && method === 'POST') {
+        requireSameOrigin(request);
+        await traceLogin(request, response);
+        return;
+      }
       if (path === '/api/session/login' && (method === 'GET' || method === 'HEAD')) {
         const url = new URL(request.url, 'http://localhost');
         const role = url.searchParams.get('panel');
@@ -189,7 +207,7 @@ function createCore(database, challenge, scanEnabled) {
       if (method === 'POST' || method === 'DELETE') requireSameOrigin(request);
       await handleApi(request, response, path, session);
     } catch (error) {
-      if (error instanceof RequestError) {
+      if (error instanceof RequestError || error instanceof trace.TraceError) {
         json(response, error.status, { error: error.message });
         return;
       }
@@ -304,6 +322,45 @@ function createCore(database, challenge, scanEnabled) {
     redirect(response, destination, sessionHeader(request, token, sessionSeconds));
   }
 
+  function seedTraceAccounts() {
+    traceAccountsReady ??= (async () => {
+      const warehousePassword = process.env.MUTERMINAL_TRACE_PILOT_WAREHOUSE_PASSWORD;
+      const superPassword = process.env.MUTERMINAL_TRACE_SUPER_PASSWORD;
+      const superEmail = process.env.MUTERMINAL_TRACE_SUPER_EMAIL?.trim().toLowerCase();
+      const seeds = [
+        [warehousePassword, { email: 'depo@muterminal.com', displayName: 'Depo Görevlisi', role: 'warehouse',
+          tenantId: 'pilot', storeId: 'pilot', warehouseId: 'pilot-depo' }],
+        [superEmail && superPassword, { email: superEmail, displayName: 'MuTerminal Süper Admin', role: 'super',
+          tenantId: null, storeId: null, warehouseId: null }],
+      ];
+      for (const [password, account] of seeds) {
+        if (password) await traceAccess.seedTraceAccount({ ...account, ...await passwordCredentials(password), active: true, control: false, review: false });
+      }
+    })().catch(error => {
+      traceAccountsReady = undefined;
+      throw error;
+    });
+    return traceAccountsReady;
+  }
+
+  async function traceLogin(request, response) {
+    if (request.headers['content-type']?.split(';')[0].trim() !== 'application/x-www-form-urlencoded') {
+      throw new RequestError(415, 'Giriş formunu kullanın.');
+    }
+    const fields = new URLSearchParams(await readBody(request));
+    if (!await verifyChallenge(fields.get('challengeId'), fields.get('challengeAnswer'))) return redirect(response, '/trace?giris=dogrulama');
+    await seedTraceAccounts();
+    const email = fields.get('email')?.trim().toLowerCase();
+    const account = email && await traceAccess.activeTraceAccount(email);
+    if (!await matchesPassword(account, fields.get('password'))) return redirect(response, '/trace?giris=bilgi');
+    const previous = sessionToken(request);
+    if (previous) await deleteSession(previous);
+    const token = randomBytes(32).toString('base64url');
+    await createSession(token, account.email, new Date(Date.now() + sessionSeconds * 1000), traceCredentialTag(account),
+      { email: account.email, displayName: account.displayName, role: 'trace', storeId: account.storeId ?? '', canApprove: false });
+    redirect(response, '/trace', sessionHeader(request, token, sessionSeconds));
+  }
+
   function requiredText(body, field, label, maxLength) {
     const value = typeof body[field] === 'string' ? body[field].trim() : '';
     if (!value || value.length > maxLength) {
@@ -322,6 +379,14 @@ function createCore(database, challenge, scanEnabled) {
 
   function productStore(product) {
     return product.storeId ?? pilotStore.id;
+  }
+
+  function traceKey(product) {
+    return { storeId: productStore(product), barcode: product.code, lot: product.lot, name: product.name };
+  }
+
+  function coreRecallScope(session) {
+    return session.role === 'admin' ? null : session.storeId;
   }
 
   async function storeList() {
@@ -609,16 +674,17 @@ function createCore(database, challenge, scanEnabled) {
     const products = [];
     const logs = [];
     const now = currentMinute();
-    const [entries, settings, groups] = await Promise.all([
+    const [entries, settings, groups, recalls] = await Promise.all([
       records.find(accessScope(session)).sort({ createdAt: -1, _id: -1 }).toArray(), getSettings(), departmentGroups(),
+      trace.openRecallKeys(coreRecallScope(session)),
     ]);
     const lotRisks = new Map();
     const blockedRks = new Set();
     const risks = entries.map(record => {
       const risk = productRisk(record, now, settings);
-      const key = JSON.stringify([productStore(record), record.code, record.lot]);
+      const key = trace.traceLotKey(traceKey(record));
       if (risk?.blocks && (risk.level === 'danger' || !lotRisks.has(key))) lotRisks.set(key, risk);
-      if (settings.blockRksAcrossLots && record.type === 'RKS Blokaj') blockedRks.add(JSON.stringify([productStore(record), record.code]));
+      if (settings.blockRksAcrossLots && record.type === 'RKS Blokaj') blockedRks.add(JSON.stringify([productStore(record), trace.traceBarcode(record.code)]));
       return risk;
     });
     for (const [index, record] of entries.entries()) {
@@ -626,10 +692,13 @@ function createCore(database, challenge, scanEnabled) {
       const id = _id;
       const storeId = productStore(product);
       const ownRisk = risks[index];
-      const lotRisk = lotRisks.get(JSON.stringify([storeId, product.code, product.lot]));
-      const relatedRks = blockedRks.has(JSON.stringify([storeId, product.code]));
+      const lotKey = trace.traceLotKey({ storeId, barcode: product.code, lot: product.lot });
+      const lotRisk = lotRisks.get(lotKey);
+      const relatedRks = blockedRks.has(JSON.stringify([storeId, trace.traceBarcode(product.code)]));
       const risk = chooseRisk(ownRisk, lotRisk);
-      const effectiveRisk = relatedRks && !risk?.blocks ? { label: 'Mağazada açık RKS blokajı', level: 'warn', blocks: true } : risk;
+      const recalled = recalls.has(lotKey);
+      const effectiveRisk = recalled ? { label: 'Açık geri çağırma', level: 'danger', blocks: true }
+        : relatedRks && !risk?.blocks ? { label: 'Mağazada açık RKS blokajı', level: 'warn', blocks: true } : risk;
       const actions = availableActions(product, effectiveRisk, now).filter(action => session.canApprove || action.requestable);
       const assessmentActions = assessments.filter(action => matchesAssessment(product, action) && (!action.guarded || !effectiveRisk?.blocks));
       const visibleProposal = session.role !== 'staff' || proposal?.actor === session.email ? proposal : undefined;
@@ -654,13 +723,170 @@ function createCore(database, challenge, scanEnabled) {
       : ownRisk;
   }
 
-  function scanLot(recordsForBarcode, lot, settings, now) {
+  async function traceLookup(session, access, input, selectedLot) {
+    const { code, lot } = trace.traceLookupInput(input, selectedLot);
+    const [entries, settings, locations, assignedLots, warningDays, warehouses] = await Promise.all([
+      trace.lookupOperations(code, access.storeIds), getSettings(), traceLocations(access),
+      access.warehouseId ? traceAccess.warehouseLots(access.warehouseId) : null, traceAccess.traceWarningDays(access.tenantId),
+      access.role === 'company' ? traceAccess.warehousesInStores(access.storeIds) : [],
+    ]);
+    const codes = [...new Set([code, ...entries.map(entry => trace.traceBarcode(entry.code))])];
+    const [events, controls] = await Promise.all([
+      trace.lookupEvents(codes, access, lot), traceControls.lookupControls(access, session.email, codes, lot),
+    ]);
+    const warehouseVisible = (barcode, lot) => !assignedLots || assignedLots.has(JSON.stringify([trace.traceBarcode(barcode), lot]));
+    const groups = new Map();
+    const openRks = new Set();
+    const now = currentMinute();
+    function group(item) {
+      const key = trace.traceLotKey(item);
+      if (!groups.has(key)) {
+        groups.set(key, { ...item, storeName: Object.hasOwn(locations, item.storeId) ? locations[item.storeId] : item.storeId,
+          expiryDates: [], rksBlocked: false, events: [], operations: [], controls: [],
+          warehouses: warehouses.filter(warehouse => warehouse.storeId === item.storeId) });
+      }
+      return groups.get(key);
+    }
+    for (const entry of entries) {
+      const item = traceKey(entry);
+      if (settings.blockRksAcrossLots && entry.type === 'RKS Blokaj') {
+        openRks.add(JSON.stringify([item.storeId, trace.traceBarcode(item.barcode)]));
+      }
+      if ((lot && item.lot !== lot) || !warehouseVisible(item.barcode, item.lot)) continue;
+      const result = group(item);
+      const risk = productRisk(entry, now, { ...settings, expiryWarningDays: warningDays });
+      result.rksBlocked ||= entry.type === 'RKS Blokaj';
+      const expiry = entry.details?.expiryDate;
+      if (expiry && !result.expiryDates.includes(expiry)) result.expiryDates.push(expiry);
+      result.operations.push({
+        id: entry._id, type: entry.type, status: entry.status, qty: entry.qty, time: entry.createdAt,
+        details: entry.details, risk,
+        decisions: (entry.decisions ?? []).filter(decision => access.role === 'warehouse' ? decision.actor === session.email
+          : access.role !== 'staff' || decision.actor === session.email || decision.requestedBy === session.email),
+      });
+    }
+    for (const { storeId, barcode, lot: eventLot, name, actor, ...event } of events) {
+      if (!warehouseVisible(barcode, eventLot)) continue;
+      const result = group({ storeId, barcode, lot: eventLot, name });
+      result.events.push({ ...event, actor: access.role !== 'staff' || actor === session.email ? actor : undefined });
+    }
+    for (const control of controls) {
+      const { storeId, barcode, lot, name } = control;
+      if (warehouseVisible(barcode, lot)) group({ storeId, barcode, lot, name }).controls.push(control);
+    }
+    for (const result of groups.values()) {
+      result.expiryDates.sort();
+      result.rksBlocked ||= openRks.has(JSON.stringify([result.storeId, trace.traceBarcode(result.barcode)]));
+    }
+    return { lots: [...groups.values()] };
+  }
+
+  async function traceLocations(access) {
+    const locations = access.tenantId ? await traceAccess.traceStoreLocations(access.tenantId) : [];
+    return Object.fromEntries(locations.filter(({ id }) => access.storeIds.includes(id)).map(({ id, name }) => [id, name]));
+  }
+
+  async function scopedTraceProduct(id, access) {
+    if (!isRecordId(id)) throw new RequestError(400, 'Geçerli bir ürün ve lot seçin.');
+    const scope = access.storeIds.includes(pilotStore.id) ? [...access.storeIds, null] : access.storeIds;
+    const product = await records.findOne({ _id: id, storeId: { $in: scope } });
+    if (!product) throw new RequestError(404, 'Ürün kaydı bulunamadı.');
+    return product;
+  }
+
+  async function handleTrace(request, response, path, session) {
+    const access = await traceAccess.resolveTraceAccess(session);
+    if (path === '/api/trace/management' && request.method === 'GET') {
+      return json(response, 200, await traceAccess.traceManagement(access));
+    }
+    if (request.method === 'POST' && path.startsWith('/api/trace/management/')) {
+      await traceAccess.changeTraceManagement(access, session.email, path.slice('/api/trace/management/'.length), await readJson(request), passwordCredentials);
+      return json(response, 200, { saved: true });
+    }
+    if (access.role === 'super') throw new RequestError(403, 'Müşteri kayıtları firma ve lokasyon yetkisi gerektirir.');
+    if (request.method === 'GET' && path === '/api/trace/lookup') {
+      const options = new URL(request.url, 'http://localhost').searchParams;
+      return json(response, 200, await traceLookup(session, access, options.get('code')?.trim() ?? '', options.get('lot')?.trim() || null));
+    }
+    if (request.method === 'GET' && path === '/api/trace/report') {
+      if (access.role === 'staff') return json(response, 200, { personal: await traceControls.personalReport(access, session.email) });
+      const today = currentMinute().slice(0, 10);
+      const expiryWarningDays = await traceAccess.traceWarningDays(access.tenantId);
+      const warningDate = new Date(Date.parse(today) + expiryWarningDays * 86_400_000).toISOString().slice(0, 10);
+      const [report, locations] = await Promise.all([trace.report(access, today, warningDate), traceLocations(access)]);
+      return json(response, 200, { ...report, locations });
+    }
+    if (request.method === 'POST' && path === '/api/trace/decisions') {
+      if (!access.canControl) throw new RequestError(403, 'Kontrol kaydı için yetkiniz yok.');
+      const body = await readJson(request);
+      const product = await scopedTraceProduct(body.productId, access);
+      const { rks, expiryDate = null, condition, followupOf = null } = body;
+      if (!['clear', 'blocked', 'unknown'].includes(rks) || !['good', 'damaged', 'unknown'].includes(condition)) {
+        throw new RequestError(400, 'RKS ve fiziksel kontrol sonucunu seçin.');
+      }
+      if (expiryDate !== null) dateField(expiryDate, { type: 'date', label: 'Ürün üzerindeki SKT' });
+      if (followupOf !== null && (typeof followupOf !== 'string' || !trace.uuidPattern.test(followupOf))) {
+        throw new RequestError(400, 'Geçerli bir ek kontrol talebi seçin.');
+      }
+      const requestId = await traceControls.addControl(access, session.email, { id: product._id, ...traceKey(product) }, {
+        choice: body.choice, note: requiredText(body, 'reason', 'Kontrol gerekçesi', 1000),
+        location: requiredText(body, 'location', 'Kontrol konumu', 150), followupOf,
+        checks: { rks, expiryDate, condition, expired: expiryDate ? expiryDate < currentMinute().slice(0, 10) : null },
+      });
+      return json(response, 201, { requestId });
+    }
+    if (request.method === 'POST' && path === '/api/trace/review') {
+      if (!access.canReview) throw new RequestError(403, 'Karar inceleme yetkisi gerekir.');
+      const body = await readJson(request);
+      if (typeof body.id !== 'string' || !trace.uuidPattern.test(body.id)) throw new RequestError(400, 'Geçerli bir karar talebi seçin.');
+      await traceControls.reviewControl(access, session.email, body.id, body.outcome, requiredText(body, 'reason', 'İnceleme gerekçesi', 1000));
+      return json(response, 200, { saved: true });
+    }
+    if (request.method === 'POST' && path === '/api/trace/warehouse-lots') {
+      if (access.role !== 'company') throw new RequestError(403, 'Depo lot ataması firma adminine aittir.');
+      const body = await readJson(request);
+      if (typeof body.enabled !== 'boolean') throw new RequestError(400, 'Atama işlemi seçin.');
+      const product = await scopedTraceProduct(body.productId, access);
+      await traceAccess.assignWarehouseLot(access, session.email, traceKey(product), body.warehouseId, body.enabled);
+      return json(response, 200, { saved: true });
+    }
+    if (request.method === 'POST' && ['/api/trace/movements', '/api/trace/recalls', '/api/trace/recalls/close'].includes(path)) {
+      const movement = path === '/api/trace/movements';
+      if (!movement && !access.canRecall) throw new RequestError(403, 'Geri çağırma için onay yetkisi gerekir.');
+      if (movement && !access.stages.length) throw new RequestError(403, 'Hareket kaydı için yetkiniz yok.');
+      const body = await readJson(request);
+      const note = requiredText(body, 'note', movement ? 'Hareket açıklaması' : 'Geri çağırma gerekçesi', 1000);
+      if (path === '/api/trace/recalls/close') {
+        if (typeof body.recallId !== 'string' || !trace.uuidPattern.test(body.recallId)) throw new RequestError(400, 'Geçerli bir geri çağırma seçin.');
+        await trace.closeRecall(body.recallId, access.storeIds, session.email, note);
+        return response.writeHead(204, { 'Cache-Control': 'no-store' }).end();
+      }
+      const product = await scopedTraceProduct(body.productId, access);
+      if (!movement) return json(response, 201, { id: await trace.openRecall(traceKey(product), session.email, note) });
+      const { id, stage, quantity = null } = body;
+      if (typeof id !== 'string' || !trace.uuidPattern.test(id) || !trace.isTraceStage(stage)) {
+        throw new RequestError(400, 'Geçerli bir hareket kimliği ve aşama seçin.');
+      }
+      if (!access.stages.includes(stage)) throw new RequestError(403, 'Bu hareket aşaması yetkiniz dışında.');
+      if (quantity !== null && (!Number.isInteger(quantity) || quantity < 1 || quantity > 2147483647)) {
+        throw new RequestError(400, 'Miktar pozitif bir tam sayı olmalıdır.');
+      }
+      const location = requiredText(body, 'location', 'Konum', 150);
+      const origin = body.origin == null || body.origin === '' ? null : requiredText(body, 'origin', 'Çıkış konumu', 150);
+      const inserted = await trace.addMovement(traceKey(product), session.email, { id, stage, quantity, origin, location, note, warehouseId: access.warehouseId });
+      return json(response, inserted ? 201 : 200, { id });
+    }
+    throw new RequestError(404, 'İstek adresi bulunamadı.');
+  }
+
+  function scanLot(recordsForBarcode, lot, settings, now, recalls) {
     const lotRecords = recordsForBarcode.filter(item => item.lot === lot);
     const product = lotRecords.find(item => item.type === 'SKT') ?? lotRecords[0];
     if (!product) return null;
     const expiryDate = lotRecords.map(item => item.details?.expiryDate).filter(Boolean).sort()[0] ?? null;
     const rksBlocked = recordsForBarcode.some(item => item.type === 'RKS Blokaj' && (item.lot === lot || settings.blockRksAcrossLots));
-    const blocked = rksBlocked || lotRecords.some(item => productRisk(item, now, settings)?.blocks);
+    const blocked = rksBlocked || lotRecords.some(item => productRisk(item, now, settings)?.blocks) ||
+      recalls?.has(trace.traceLotKey(traceKey(product)));
     const quantity = product.type === 'Depo Fark' ? product.details?.systemStock : product.qty;
     const choices = assessments.filter(action => matchesAssessment(product, action) && (!action.guarded || !blocked))
       .map(action => action.choice);
@@ -674,12 +900,16 @@ function createCore(database, challenge, scanEnabled) {
   async function scanLookup(session, code) {
     const settings = await getSettings();
     const now = currentMinute();
-    const matches = await records.find({ ...accessScope(session), $or: [{ code }, { productCode: code }] })
+    const options = { $in: trace.barcodeVariants(code) };
+    const matches = await records.find({ ...accessScope(session), $or: [{ code: options }, { productCode: options }] })
       .sort({ createdAt: -1, _id: -1 }).toArray();
     const found = [];
-    for (const barcode of new Set(matches.map(item => item.code))) {
-      const entries = await records.find({ ...accessScope(session), code: barcode }).sort({ createdAt: -1, _id: -1 }).toArray();
-      for (const lot of new Set(entries.map(item => item.lot))) found.push(scanLot(entries, lot, settings, now));
+    for (const barcode of new Set(matches.map(item => trace.traceBarcode(item.code)))) {
+      const [entries, recalls] = await Promise.all([
+        records.find({ ...accessScope(session), code: { $in: trace.barcodeVariants(barcode) } }).sort({ createdAt: -1, _id: -1 }).toArray(),
+        trace.openRecallKeys(coreRecallScope(session), barcode),
+      ]);
+      for (const lot of new Set(entries.map(item => item.lot))) found.push(scanLot(entries, lot, settings, now, recalls));
     }
     return { products: found, today: now.slice(0, 10) };
   }
@@ -694,8 +924,8 @@ function createCore(database, challenge, scanEnabled) {
   }
 
   async function validateScanClearance(product, check, now) {
-    const recordsForBarcode = await records.find({ ...storeScope(productStore(product)), code: product.code }).toArray();
-    const lot = scanLot(recordsForBarcode, product.lot, await getSettings(), now);
+    const recordsForBarcode = await records.find({ ...storeScope(productStore(product)), code: { $in: trace.barcodeVariants(product.code) } }).toArray();
+    const lot = scanLot([product, ...recordsForBarcode.filter(record => record._id !== product._id)], product.lot, await getSettings(), now);
     if (!lot || lot.expired || lot.rksBlocked || (lot.expiryDate && lot.expiryDate !== check.expiryDate) ||
         !check.expiryDate || check.expiryDate < now.slice(0, 10) || check.rks !== 'clear' || check.packaging !== 'intact' ||
         check.quantity < 1 || (lot.quantity !== null && lot.quantity !== check.quantity)) {
@@ -777,6 +1007,7 @@ function createCore(database, challenge, scanEnabled) {
       ? assessments.find(option => option.choice === choice)
       : operationAction(product, choice);
     if (!action) throw new RequestError(400, 'Bu operasyon için geçerli bir karar seçin.');
+    const writeOptions = action.guarded ? { beforeUpdate: client => trace.assertNoRecall(client, traceKey(product)) } : undefined;
     const proposing = !session.canApprove || body.submitAsProposal === true;
     if (proposing && !isAssessment && !action.requestable) {
       throw new RequestError(403, 'Bu operasyonu yalnızca onay yetkisi olan hesaplar yürütebilir.');
@@ -790,7 +1021,7 @@ function createCore(database, challenge, scanEnabled) {
     if (scan && action.guarded) await validateScanClearance(product, scan, now);
     if (action.guarded) {
       const settings = await getSettings();
-      const scope = { ...storeScope(productStore(product)), code: product.code };
+      const scope = { ...storeScope(productStore(product)), code: { $in: trace.barcodeVariants(product.code) } };
       const lotOrRks = settings.blockRksAcrossLots ? { $or: [{ lot: product.lot }, { type: 'RKS Blokaj' }] } : { lot: product.lot };
       const related = records.find({ ...scope, ...lotOrRks });
       for await (const entry of related) {
@@ -810,6 +1041,7 @@ function createCore(database, challenge, scanEnabled) {
     const update = isAssessment ? { assessment: status } : { status };
     const decision = { time: new Date(), choice, result: status, staff, actor: session.email, reason };
     if (scan) Object.assign(decision, { source: 'scan', scanCheck: scan });
+    else if (proposal?.source) decision.source = proposal.source;
     if (isAssessment) decision.kind = kind;
     if (action.releaseTemporary) {
       if (!product.locked || !temporaryBlockEnded(product, now)) {
@@ -828,7 +1060,7 @@ function createCore(database, challenge, scanEnabled) {
       const proposal = { ...decision, id: requestId, result: 'Onay bekliyor' };
       const saved = await records.updateOne({ ...filter, proposal: null }, {
         $set: { proposal }, $push: { decisions: { ...decision, kind: 'proposal', result: 'Onay bekliyor' } },
-      });
+      }, writeOptions);
       if (!saved.matchedCount) throw new RequestError(409, 'Kayıt değişti veya bu kayıt için zaten bekleyen bir talep var.');
       return requestId;
     }
@@ -845,7 +1077,7 @@ function createCore(database, challenge, scanEnabled) {
       $push: { decisions: decision },
     };
     if (proposalId) change.$unset = { proposal: '' };
-    const result = await records.updateOne(filter, change);
+    const result = await records.updateOne(filter, change, writeOptions);
     if (!result.matchedCount) {
       throw new RequestError(409, 'Kayıt durumu değişti. Güncel kaydı kontrol edin.');
     }
@@ -860,7 +1092,7 @@ function createCore(database, challenge, scanEnabled) {
     const filter = { _id: id, ...accessScope(session), 'proposal.id': body.proposalId };
     const product = await records.findOne(filter);
     if (!product) throw new RequestError(404, 'Bekleyen talep bulunamadı.');
-    const { choice, kind, destination, actor, scanCheck } = product.proposal;
+    const { choice, kind, destination, actor, scanCheck, source } = product.proposal;
     if (body.outcome === 'approve') {
       await saveDecision(id, { choice, kind, destination, staff: session.email, reason }, session, body.proposalId);
       return;
@@ -868,6 +1100,7 @@ function createCore(database, challenge, scanEnabled) {
     const result = await records.updateOne(filter, {
       $unset: { proposal: '' },
       $push: { decisions: { choice, reason, kind: 'review', result: 'Reddedildi', actor: session.email, staff: session.email, requestedBy: actor, time: new Date(),
+        ...(source && { source }),
         ...(scanCheck && { source: 'scan', scanCheck, requestId: body.proposalId, requestStatus: 'rejected' }) } },
     });
     if (!result.matchedCount) throw new RequestError(409, 'Talep başka bir oturumda değerlendirildi.');
@@ -895,6 +1128,8 @@ function createCore(database, challenge, scanEnabled) {
   }
 
   async function handleApi(request, response, path, session) {
+    if (path === '/api/trace' || path.startsWith('/api/trace/')) return handleTrace(request, response, path, session);
+    if (session.role === 'trace') throw new RequestError(403, 'Bu hesap MU TRACE’e erişebilir.');
     if (path === '/api/scan' || path.startsWith('/api/scan/')) {
       if (!scanEnabled()) throw new RequestError(404, 'Bu modül şu anda kullanıma açık değil.');
       return handleScan(request, response, path, session, new URL(request.url, 'http://localhost').searchParams);

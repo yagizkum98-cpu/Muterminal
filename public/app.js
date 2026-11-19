@@ -124,6 +124,11 @@ function deleteButton(product) {
   return `<button type="button" class="delete-product" data-action="delete" data-id="${escapeHtml(product.id)}"><span aria-hidden="true">🗑️</span> Sil</button>`;
 }
 
+function traceLink(product) {
+  const params = new URLSearchParams({ code: product.code, lot: product.lot, store: product.storeId });
+  return `<a class="trace-record-link" href="/trace?${escapeHtml(params.toString())}">MU TRACE</a>`;
+}
+
 function rowActions(product) {
   const id = escapeHtml(product.id);
   const actions = [];
@@ -139,6 +144,7 @@ function rowActions(product) {
   if (!product.proposal) actions.push(`<button type="button" class="secondary" data-action="assessment" data-id="${id}">${panel.canApprove ? 'MuDecision kararı' : 'MuDecision önerisi'}</button>`);
   actions.push(
     `<button type="button" class="secondary" data-action="trace" data-id="${id}">Lot geçmişi</button>`,
+    traceLink(product),
   );
   if (panel.role === 'admin') actions.push(deleteButton(product));
   return actions.join('');
@@ -170,7 +176,7 @@ function renderDecisionFiles() {
           <h3 id="file-${escapeHtml(product.id)}">${escapeHtml(product.name)}</h3>
           <small>${escapeHtml(storeName(product.storeId))} · Barkod ${escapeHtml(product.code)} · Lot ${escapeHtml(product.lot)}</small>
         </div>
-        <button type="button" class="secondary" data-action="trace" data-id="${escapeHtml(product.id)}">Lot geçmişi</button>
+        <div class="actions"><button type="button" class="secondary" data-action="trace" data-id="${escapeHtml(product.id)}">Lot geçmişi</button>${traceLink(product)}</div>
       </div>
       <div class="scroll">
         <table>

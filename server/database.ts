@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 
@@ -10,7 +10,8 @@ type Update = { $set?: Document; $unset?: Document; $push?: Document };
 export type Entity = 'products' | 'accounts' | 'stores' | 'account_password_overrides' | 'system_settings' | 'department_options';
 type EntityRow = { id: string; document: Document };
 
-const runtime = globalThis as typeof globalThis & { muPostgres?: Pool; muSchema?: Promise<void> };
+type SchemaInitialization = { revision: string; ready: Promise<void> };
+const runtime = globalThis as typeof globalThis & { muPostgres?: Pool; muSchemaInitialization?: SchemaInitialization };
 
 export function pool() {
   const connectionString = process.env.DATABASE_URL;
@@ -18,23 +19,50 @@ export function pool() {
   return runtime.muPostgres ??= new Pool({ connectionString, max: 10, connectionTimeoutMillis: 3000 });
 }
 
-export async function ensureSchema() {
-  runtime.muSchema ??= (async () => {
-    const sql = await readFile(join(process.cwd(), 'server/schema.sql'), 'utf8');
-    await transaction(async client => {
-      await client.query('SELECT pg_advisory_xact_lock(682947301)');
-      await client.query(sql);
-    });
-  })().catch(error => {
-    delete runtime.muSchema;
+async function initializeSchema() {
+  const path = join(process.cwd(), 'server/schema.sql');
+  let revision = path;
+  if (process.env.NODE_ENV === 'development') {
+    // Next.js hot reload keeps globals alive when the SQL schema changes.
+    const { mtimeMs, size } = await stat(path);
+    revision = `${path}:${mtimeMs}:${size}`;
+  }
+  let initialization = runtime.muSchemaInitialization;
+  if (initialization?.revision !== revision) {
+    const ready = (async () => {
+      const sql = await readFile(path, 'utf8');
+      await transaction(async client => {
+        await client.query('SELECT pg_advisory_xact_lock(682947301)');
+        await client.query(sql);
+      });
+    })();
+    initialization = { revision, ready };
+    runtime.muSchemaInitialization = initialization;
+  }
+  try {
+    await initialization.ready;
+    return initialization;
+  } catch (error) {
+    if (runtime.muSchemaInitialization === initialization) delete runtime.muSchemaInitialization;
     throw error;
-  });
-  await runtime.muSchema;
+  }
+}
+
+export async function ensureSchema() {
+  await initializeSchema();
 }
 
 export async function query<R extends QueryResultRow = QueryResultRow>(sql: string, values: unknown[] = []) {
-  await ensureSchema();
-  return pool().query<R>(sql, values);
+  const initialization = await initializeSchema();
+  try {
+    return await pool().query<R>(sql, values);
+  } catch (error) {
+    // A restored database can lose tables while the application is running.
+    if ((error as { code?: string }).code !== '42P01') throw error;
+    if (runtime.muSchemaInitialization === initialization) delete runtime.muSchemaInitialization;
+    await ensureSchema();
+    return pool().query<R>(sql, values);
+  }
 }
 
 export async function transaction<R>(work: (client: PoolClient) => Promise<R>) {
@@ -174,9 +202,10 @@ export class Table {
     return { insertedId: id };
   }
 
-  async updateOne(filter: Filter, update: Update, options?: { upsert: boolean }) {
+  async updateOne(filter: Filter, update: Update, options?: { upsert?: boolean; beforeUpdate?: (client: PoolClient) => Promise<void> }) {
     await ensureSchema();
     return transaction(async client => {
+      await options?.beforeUpdate?.(client);
       const sql = new SqlParameters();
       const where = sql.where(filter);
       const { rows } = await client.query<EntityRow>(`SELECT id, document FROM ${this.table} WHERE ${where} LIMIT 1 FOR UPDATE`, sql.values);
