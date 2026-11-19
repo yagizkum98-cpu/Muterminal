@@ -4,7 +4,7 @@ const { operations, saleApproval, assessments } = require('../operations.cjs');
 
 function createCore(database, challenge, scanEnabled, trace, traceAccess, traceControls, mobileAccess) {
   const { Table, newRecordId, createSession, findSession, deleteSession, revokeSessions } = database;
-  const { challengeImage, verifyChallenge } = challenge;
+  const { createChallenge, challengeImage, verifyChallenge } = challenge;
   const records = new Table('products');
   const users = new Table('accounts');
   const passwordOverrides = new Table('account_password_overrides');
@@ -198,6 +198,11 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
         if (token) await deleteSession(token);
         const mobile = new URL(request.url, 'http://localhost').searchParams.get('mobil') === '1';
         redirect(response, mobile ? '/mobil' : '/', sessionHeader(request, '', 0));
+        return;
+      }
+      if (path === '/api/session/challenge' && method === 'POST') {
+        requireSameOrigin(request);
+        json(response, 200, await createChallenge());
         return;
       }
       const challenge = path.match(/^\/api\/session\/challenge\/([0-9a-f]{32})\.bmp$/);

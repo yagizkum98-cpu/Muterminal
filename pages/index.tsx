@@ -3,7 +3,8 @@ import { languageFromCookie } from '../lib/language';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
 import ProductJourney from '../components/ProductJourney';
-import { createChallenge } from '../server/challenge';
+import { createChallenge, type IssuedChallenge } from '../server/challenge';
+import LoginChallenge from '../components/LoginChallenge';
 import { ensurePilotAccounts } from '../server/application';
 import { scanEnabled } from '../server/features';
 import { isPanel, loginTitles, type PanelRole } from '../server/panels';
@@ -14,23 +15,23 @@ const errors: Record<string, string> = {
   yetki: 'Bu hesap seçilen panele erişemiyor.',
 };
 
-interface Props { role: PanelRole; loginTitle: string; error: string | null; passwordChanged: boolean; challengeId: string | null; handoff: string | null; mobile: boolean }
+interface Props { role: PanelRole; loginTitle: string; error: string | null; passwordChanged: boolean; challenge: IssuedChallenge | null; handoff: string | null; mobile: boolean }
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ query, req, res }) => {
   const role = isPanel(query.panel) ? query.panel : 'admin';
   const error = typeof query.giris === 'string' && Object.hasOwn(errors, query.giris) ? errors[query.giris] : null;
   const handoff = scanEnabled() && role === 'manager' && typeof query.talep === 'string' && /^[a-f0-9]{24}$/.test(query.talep) ? query.talep : null;
   res.setHeader('Cache-Control', 'no-store');
-  let challengeId: string | null = null;
+  let challenge: IssuedChallenge | null = null;
   try {
     await ensurePilotAccounts();
-    challengeId = await createChallenge();
+    challenge = await createChallenge();
   }
   catch (error) { console.error('Login challenge:', error); }
-  return { props: { role, loginTitle: loginTitles[role], error, passwordChanged: query.password === 'changed', challengeId, handoff, mobile: query.mobil === '1', language: languageFromCookie(req.headers.cookie) } };
+  return { props: { role, loginTitle: loginTitles[role], error, passwordChanged: query.password === 'changed', challenge, handoff, mobile: query.mobil === '1', language: languageFromCookie(req.headers.cookie) } };
 };
 
-export default function Landing({ role, loginTitle, error, passwordChanged, challengeId, handoff, mobile }: Props) {
+export default function Landing({ role, loginTitle, error, passwordChanged, challenge, handoff, mobile }: Props) {
   const t = useTranslate();
   const mobileParam = mobile ? '&mobil=1' : '';
   return <>
@@ -93,7 +94,7 @@ export default function Landing({ role, loginTitle, error, passwordChanged, chal
         </nav>
         {error && <p className="login-error" role="alert">{t(error)}</p>}
         {passwordChanged && <p role="status">{t("Şifreniz değiştirildi. Yeni şifrenizle giriş yapın.")}</p>}
-        {challengeId ? <form method="post" action="/admin/login">
+        {challenge ? <form method="post" action="/admin/login">
           <input type="hidden" name="role" value={role} />
           {mobile && <input type="hidden" name="mobil" value="1" />}
           {handoff && <input type="hidden" name="talep" value={handoff} />}
@@ -101,13 +102,8 @@ export default function Landing({ role, loginTitle, error, passwordChanged, chal
           <input id="email" name="email" type="text" maxLength={100} autoComplete="username" autoCapitalize="none" spellCheck="false" required />
           <label htmlFor="password">{t("Şifre")}</label>
           <input id="password" name="password" type="password" autoComplete="current-password" required />
-          <label htmlFor="challenge-answer">{t("Görseldeki beş harfi yazın")}</label>
-          <div className="login-challenge">
-            <img src={`/admin/challenge/${challengeId}.bmp`} width="160" height="48" alt={t("Beş harfli doğrulama görseli")} />
-            <a href={`/admin/login?panel=${role}${mobileParam}${handoff ? `&talep=${handoff}` : ''}`}>{t("Harfleri yenile")}</a>
-          </div>
-          <input type="hidden" name="challengeId" value={challengeId} />
-          <input id="challenge-answer" name="challengeAnswer" type="text" autoComplete="off" spellCheck="false" autoCapitalize="characters" pattern="[A-Za-z]{5}" maxLength={5} required />
+          <LoginChallenge key={challenge.id} initial={challenge} imageClassName="login-challenge"
+            refreshHref={`/admin/login?panel=${role}${mobileParam}${handoff ? `&talep=${handoff}` : ''}`} />
           <button className="button" type="submit">{t("Giriş yap")}</button>
         </form> : <p role="status">{t("Veritabanı bağlantısı kurulamadı. Giriş için bağlantıyı kontrol edin.")}</p>}
       </div>

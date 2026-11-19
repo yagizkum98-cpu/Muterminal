@@ -66,6 +66,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .login-card input, .login-card select { min-width: 0; border: 1px solid #829e8e; border-radius: .5rem; padding: .675rem; font: inherit; }
 .login-challenge { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
 .login-challenge img { border: 1px solid #829e8e; border-radius: .5rem; }
-#challenge-answer { text-transform: uppercase; letter-spacing: .12em; }
+[name="challengeAnswer"] { text-transform: uppercase; letter-spacing: .12em; }
 .login-card .button { margin-top: .75rem; }
 .login-error { padding: .625rem .875rem; border-radius: .5rem; color: #8c2525; background: #fbe5e4; }

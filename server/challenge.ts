@@ -15,7 +15,7 @@ const glyphs: Record<string, number[]> = {
   R: [30, 17, 17, 30, 20, 18, 17],
   T: [31, 4, 4, 4, 4, 4, 4],
   U: [17, 17, 17, 17, 17, 17, 14],
-  V: [17, 17, 17, 17, 10, 10, 4],
+  V: [17, 17, 17, 10, 10, 4, 4],
   X: [17, 17, 10, 4, 10, 17, 17],
   Y: [17, 17, 10, 4, 4, 4, 4],
   Z: [31, 1, 2, 4, 8, 16, 31],
@@ -67,7 +67,9 @@ function renderCode(letters: string[]) {
 
 const hashCode = (answer: string) => createHash('sha256').update(answer).digest('hex');
 
-export async function createChallenge() {
+export type IssuedChallenge = { id: string; expiresIn: number };
+
+export async function createChallenge(): Promise<IssuedChallenge> {
   const id = randomBytes(16).toString('hex');
   const letters = Array.from({ length: codeLength }, () => alphabet[randomInt(alphabet.length)]);
   await ensureSchema();
@@ -76,7 +78,7 @@ export async function createChallenge() {
     await client.query('DELETE FROM login_challenges WHERE id IN (SELECT id FROM login_challenges ORDER BY expires_at DESC OFFSET $1)', [maxChallenges - 1]);
     await client.query('INSERT INTO login_challenges VALUES ($1, $2, $3, $4)', [id, hashCode(letters.join('')), renderCode(letters), new Date(Date.now() + lifetime)]);
   });
-  return id;
+  return { id, expiresIn: lifetime };
 }
 
 export async function challengeImage(id: string) {

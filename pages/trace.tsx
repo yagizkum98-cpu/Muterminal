@@ -12,7 +12,8 @@ import MobileNav, { type MobileSection } from '../components/MobileNav';
 import styles from '../components/Trace.module.css';
 import { getSession } from '../server/application';
 import { resolveTraceAccess } from '../server/trace-access';
-import { createChallenge } from '../server/challenge';
+import { createChallenge, type IssuedChallenge } from '../server/challenge';
+import LoginChallenge from '../components/LoginChallenge';
 import { mobileStaffState } from '../server/mobile-access';
 import { scanEnabled } from '../server/features';
 import type { PanelRole } from '../server/panels';
@@ -22,7 +23,7 @@ interface Props {
   access: TraceAccess | null;
   email: string | null;
   displayName: string | null;
-  challengeId: string | null;
+  challenge: IssuedChallenge | null;
   loginError: string | null;
   canScan: boolean;
   initialCode: string;
@@ -39,9 +40,9 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, 
   if (session && mobile && await mobileStaffState(session) !== 'allowed') {
     return { redirect: { destination: '/mobil', permanent: false } };
   }
-  let challengeId: string | null = null;
+  let challenge: IssuedChallenge | null = null;
   if (!session) {
-    try { challengeId = await createChallenge(); }
+    try { challenge = await createChallenge(); }
     catch (error) { console.error('MU TRACE login challenge:', error); }
   }
   const access = session ? await resolveTraceAccess(session) : null;
@@ -52,7 +53,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, 
     access,
     email: session?.email ?? null,
     displayName: session?.displayName ?? null,
-    challengeId,
+    challenge,
     loginError: query.giris === 'bilgi' ? 'Kullanıcı adı veya şifre hatalı.'
       : query.giris === 'dogrulama' ? 'Doğrulama kodu hatalı veya süresi dolmuş.' : null,
     canScan: session?.role === 'staff' && scanEnabled(),
@@ -340,7 +341,7 @@ function Reporting({ report, openLot }: { report: TraceReport | PersonalReport; 
   </div>;
 }
 
-export default function Trace({ role, access, email, displayName, challengeId, loginError, canScan, initialCode, initialLot, initialStore, mobile, initialTab }: Props) {
+export default function Trace({ role, access, email, displayName, challenge, loginError, canScan, initialCode, initialLot, initialStore, mobile, initialTab }: Props) {
   const t = useTranslate();
   const [code, setCode] = useState(initialCode);
   const [filterLot, setFilterLot] = useState(initialLot);
@@ -449,15 +450,11 @@ export default function Trace({ role, access, email, displayName, challengeId, l
       {!access ? <section className={styles.card} aria-labelledby="trace-login">
         <h2 id="trace-login">{t("MU TRACE hesabınızla giriş yapın")}</h2>
         {loginError && <p className={styles.error} role="alert">{t(loginError)}</p>}
-        {challengeId ? <form className={`${styles.form} ${styles.loginForm}`} method="post" action="/api/trace/login">
+        {challenge ? <form className={`${styles.form} ${styles.loginForm}`} method="post" action="/api/trace/login">
           <label>{t("Kullanıcı adı veya e-posta")}<input name="email" type="email" autoComplete="username" maxLength={100} required /></label>
           <label>{t("Şifre")}<input name="password" type="password" autoComplete="current-password" maxLength={128} required /></label>
-          <label>{t("Görseldeki beş harf")}<input name="challengeAnswer" autoComplete="off" pattern="[A-Za-z]{5}" maxLength={5} required /></label>
-          <div className={styles.challenge}>
-            <img src={`/admin/challenge/${challengeId}.bmp`} width="160" height="48" alt={t("Beş harfli doğrulama görseli")} />
-            <a href={mobile ? '/trace?mobil=1' : '/trace'}>{t("Harfleri yenile")}</a>
-          </div>
-          <input type="hidden" name="challengeId" value={challengeId} />
+          <LoginChallenge key={challenge.id} initial={challenge} imageClassName={styles.challenge}
+            refreshHref={mobile ? '/trace?mobil=1' : '/trace'} />
           {mobile && <input type="hidden" name="mobil" value="1" />}
           <button>{t("MU TRACE’e giriş yap")}</button>
         </form> : <p role="status">{t("Veritabanı bağlantısı kurulamadı.")}</p>}
