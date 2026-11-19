@@ -109,6 +109,7 @@ export default function Panel({ title, role, showScan }: Props) {
           <div><label htmlFor="user-email">Kullanıcı adı veya e-posta</label><input id="user-email" name="email" maxLength={100} required /></div>
           <div id="user-password-field"><label htmlFor="user-password">Şifre</label><input id="user-password" name="password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required /></div>
           <div><label htmlFor="user-role">Rol</label><select id="user-role" name="role"><option value="staff">Personel</option><option value="manager">Yönetici</option><option value="admin">Admin</option></select></div>
+          <div id="user-job-title-field"><label htmlFor="user-job-title">İş unvanı</label><select id="user-job-title" name="staffDepartment" required><option value="">İş unvanı seçin</option></select></div>
           <div><label htmlFor="user-store">Mağaza</label><select id="user-store" name="storeId" required></select></div>
         </div>
         <label id="user-approval" hidden><input type="checkbox" name="canApprove" /> Admin karar ve depo farkı onaylayabilir</label>
@@ -136,7 +137,7 @@ export default function Panel({ title, role, showScan }: Props) {
         <div className="fields">
           <div><label htmlFor="member-name">Ad soyad</label><input id="member-name" name="displayName" maxLength={100} required /></div>
           <div><label htmlFor="member-username">Kullanıcı adı veya e-posta</label><input id="member-username" name="email" maxLength={100} required /></div>
-          <div><label htmlFor="member-department">Personel reyonu</label><select id="member-department" name="staffDepartment"><option value="">Reyon atanmamış</option></select></div>
+          <div><label htmlFor="member-department">İş unvanı</label><select id="member-department" name="staffDepartment" required><option value="">İş unvanı seçin</option></select></div>
           <div><label htmlFor="member-password">Başlangıç şifresi</label><input id="member-password" name="password" type="password" minLength={8} maxLength={128} autoComplete="new-password" aria-describedby="member-password-note" /></div>
         </div>
         <p id="member-password-note">Şifreyi boş bırakırsanız başlangıç şifresi 1234567890 olur.</p>

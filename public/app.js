@@ -321,8 +321,9 @@ async function loadManagement() {
   $('managed-stores').innerHTML = stores.map(store => `<li>${escapeHtml(store.name)} <small>${escapeHtml(store.id)}</small></li>`).join('');
   $('managed-users').innerHTML = users.map(user => `
     <li>${user.displayName ? `${escapeHtml(user.displayName)} · ` : ''}${escapeHtml(user.email)} · ${escapeHtml(user.roles.map(role => roleNames[role]).join(', '))} · ${escapeHtml(storeName(user.storeId))}
+      ${!user.builtIn && user.roles.includes('staff') ? ` · ${escapeHtml(panel.staffDepartments[user.staffDepartment] ?? 'İş unvanı atanmamış')}` : ''}
       ${user.canApprove && user.roles.includes('admin') ? ' · Onay yetkili' : ''}
-      ${user.builtIn || user.email === panel.email ? '' : `<button type="button" class="secondary" data-user="${escapeHtml(user.email)}" data-edit>Yetkiyi düzenle</button>
+      ${user.builtIn || user.email === panel.email ? '' : `<button type="button" class="secondary" data-user="${escapeHtml(user.email)}" data-edit>${user.roles.includes('staff') ? 'Yetki ve unvanı düzenle' : 'Yetkiyi düzenle'}</button>
       <button type="button" class="secondary" data-user="${escapeHtml(user.email)}" data-active="${!user.active}">${user.active ? 'Devre dışı bırak' : 'Etkinleştir'}</button>`}
     </li>`).join('');
   $('product-source').value = settings.productSource;
@@ -342,15 +343,23 @@ function editManagedUser(user) {
   $('user-password-field').hidden = Boolean(user);
   $('user-password').disabled = Boolean(user);
   $('user-role').value = user?.roles[0] ?? 'staff';
+  $('user-job-title').value = user?.staffDepartment ?? '';
   $('user-store').value = user?.storeId ?? panel.storeId;
-  $('user-approval').hidden = $('user-role').value !== 'admin';
+  updateUserRoleFields();
   $('user-approval').querySelector('input').checked = user?.canApprove ?? false;
-  $('save-user').textContent = user ? 'Yetkiyi kaydet' : 'Kullanıcı oluştur';
+  $('save-user').textContent = user ? 'Değişiklikleri kaydet' : 'Kullanıcı oluştur';
   $('cancel-user-edit').hidden = !user;
 }
 
-function staffDepartmentOptions(selected) {
-  return '<option value="">Reyon atanmamış</option>' + Object.entries(panel.staffDepartments).map(([id, name]) => (
+function updateUserRoleFields() {
+  const role = $('user-role').value;
+  $('user-approval').hidden = role !== 'admin';
+  $('user-job-title-field').hidden = role !== 'staff';
+  $('user-job-title').disabled = role !== 'staff';
+}
+
+function staffJobTitleOptions(selected) {
+  return '<option value="">İş unvanı seçin</option>' + Object.entries(panel.staffDepartments).map(([id, name]) => (
     `<option value="${escapeHtml(id)}"${id === selected ? ' selected' : ''}>${escapeHtml(name)}</option>`
   )).join('');
 }
@@ -365,8 +374,8 @@ async function loadTeam() {
     <button type="button" class="secondary" data-member="${escapeHtml(member.email)}">Şifreyi değiştir</button>
     <form class="department-assignment">
       <input type="hidden" name="email" value="${escapeHtml(member.email)}">
-      <select name="staffDepartment" aria-label="${escapeHtml(member.displayName ?? member.email)} personel reyonu">${staffDepartmentOptions(member.staffDepartment)}</select>
-      <button type="submit" class="secondary">Reyonu kaydet</button>
+      <select name="staffDepartment" aria-label="${escapeHtml(member.displayName ?? member.email)} iş unvanı" required>${staffJobTitleOptions(member.staffDepartment)}</select>
+      <button type="submit" class="secondary">Unvanı kaydet</button>
     </form>
   </li>`).join('') || '<li>Henüz personel hesabı yok.</li>';
 }
@@ -771,7 +780,7 @@ $('store-filter').addEventListener('change', event => {
   else $('entry-store').value = activeStore || panel.storeId;
   if (lastState !== undefined) render();
 });
-$('user-role').addEventListener('change', event => { $('user-approval').hidden = event.target.value !== 'admin'; });
+$('user-role').addEventListener('change', updateUserRoleFields);
 
 const managementForms = {
   'store-form': ['/api/admin/stores', 'Mağaza eklendi.'],
@@ -798,7 +807,7 @@ for (const [id, [path, message]] of Object.entries(managementForms)) {
       if (id === 'store-form') form.reset();
       if (id === 'department-form') $('subdepartment-name').value = '';
       await loadManagement();
-      showStatus('management-status', editingUser ? 'Rol ve mağaza yetkileri güncellendi.' : message);
+      showStatus('management-status', editingUser ? 'Hesap bilgileri güncellendi.' : message);
       await refresh();
     } catch (error) {
       showStatus('management-status', error.message, true);
@@ -847,7 +856,7 @@ $('team-members').addEventListener('submit', async event => {
   try {
     await writeApi('/api/manager/staff/department', 'POST', Object.fromEntries(new FormData(form)));
     await loadTeam();
-    showStatus('team-status', 'Personel reyonu kaydedildi.');
+    showStatus('team-status', 'Personel iş unvanı kaydedildi.');
   } catch (error) {
     showStatus('team-status', error.message, true);
   } finally {
@@ -929,7 +938,7 @@ async function start() {
     panel = context;
     $('panel-role').textContent = panel.title;
     const identity = panel.displayName ? `${panel.displayName} (${panel.email})` : panel.email;
-    $('panel-account').textContent = `${identity} · ${panel.role === 'admin' ? 'Tüm mağazalar' : storeName(panel.storeId)}`;
+    $('panel-account').textContent = [identity, panel.jobTitle, panel.role === 'admin' ? 'Tüm mağazalar' : storeName(panel.storeId)].filter(Boolean).join(' · ');
     document.title = panel.title;
     $('staff').readOnly = panel.role === 'staff';
     if ($('staff').readOnly) $('staff').value = panel.displayName ?? panel.email;
@@ -940,9 +949,13 @@ async function start() {
     $('modules').insertAdjacentHTML('beforeend', options.map(([id, operation]) => (
       `<button type="button" data-module="${escapeHtml(id)}">${escapeHtml(operation.title)}</button>`
     )).join('') + `<button type="button" data-module="history">${panel.role === 'staff' ? 'Kendi İşlem Geçmişim' : 'Karar Geçmişi'}</button>`);
-    if (panel.role === 'admin') $('modules').insertAdjacentHTML('beforeend', '<button type="button" data-module="management">Sistem Yönetimi</button>');
+    if (panel.role === 'admin') {
+      $('user-job-title').innerHTML = staffJobTitleOptions();
+      updateUserRoleFields();
+      $('modules').insertAdjacentHTML('beforeend', '<button type="button" data-module="management">Sistem Yönetimi</button>');
+    }
     if (panel.role === 'manager') {
-      $('member-department').innerHTML = staffDepartmentOptions();
+      $('member-department').innerHTML = staffJobTitleOptions();
       $('modules').insertAdjacentHTML('beforeend', '<button type="button" data-module="staff-management">Personel Yönetimi</button>');
     }
     $('history-operation').innerHTML = '<option value="">Tüm operasyonlar</option>' + options.map(([id, operation]) => (

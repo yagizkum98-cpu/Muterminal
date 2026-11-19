@@ -36,11 +36,11 @@ function createCore(database, challenge, scanEnabled) {
     'meyve-sebze': 'Meyve Sebze',
     'unlu-mamuller-reyon': 'Unlu Mamuller',
   };
-  const staffDepartments = {
-    'kasa-reyon': departmentMainNames['kasa-reyon'],
-    'kasap-sarkuteri': 'Kasap - Şarküteri',
-    'meyve-sebze': departmentMainNames['meyve-sebze'],
-    'unlu-mamuller-reyon': departmentMainNames['unlu-mamuller-reyon'],
+  const staffJobTitles = {
+    'kasa-reyon': 'Kasa Reyon Görevlisi',
+    'kasap-sarkuteri': 'Kasap Şarküteri Görevlisi',
+    'meyve-sebze': 'Meyve Sebze Görevlisi',
+    'unlu-mamuller-reyon': 'Unlu Mamülleri Görevlisi',
   };
   const legacyChoices = new Set([saleApproval, 'Blokaj devam', 'Depoya iade', 'İncelemeye sevk']);
   const localTime = new Intl.DateTimeFormat('sv-SE', {
@@ -391,7 +391,8 @@ function createCore(database, challenge, scanEnabled) {
   async function accountPermissions(body) {
     const { role } = body;
     if (typeof role !== 'string' || !Object.hasOwn(panels, role)) throw new RequestError(400, 'Geçerli bir rol seçin.');
-    return { roles: [role], storeId: await requiredStore(body.storeId), canApprove: role === 'admin' && body.canApprove === true };
+    const assignment = role === 'staff' ? { staffDepartment: requiredStaffDepartment(body.staffDepartment) } : {};
+    return { roles: [role], storeId: await requiredStore(body.storeId), canApprove: role === 'admin' && body.canApprove === true, ...assignment };
   }
 
   async function insertManagedAccount(body, permissions, password = body.password) {
@@ -403,10 +404,9 @@ function createCore(database, challenge, scanEnabled) {
     await users.insertOne({ _id: email, email, ...credentials, ...permissions, ...(displayName && { displayName }), active: true });
   }
 
-  function staffDepartmentSelection(value) {
-    if (value === undefined || value === null || value === '') return null;
-    if (typeof value === 'string' && Object.hasOwn(staffDepartments, value)) return value;
-    throw new RequestError(400, 'Geçerli bir personel reyonu seçin.');
+  function requiredStaffDepartment(value) {
+    if (typeof value === 'string' && Object.hasOwn(staffJobTitles, value)) return value;
+    throw new RequestError(400, 'Personel için dört iş unvanından birini seçin.');
   }
 
   async function handleManagerAccounts(request, response, path, session) {
@@ -421,12 +421,11 @@ function createCore(database, challenge, scanEnabled) {
     const body = await readJson(request);
     if (path === '/api/manager/staff') {
       const password = body.password === '' || body.password === undefined ? defaultPilotPassword : body.password;
-      const staffDepartment = staffDepartmentSelection(body.staffDepartment);
+      const staffDepartment = requiredStaffDepartment(body.staffDepartment);
       await insertManagedAccount(body, { roles: ['staff'], storeId: session.storeId, canApprove: false, staffDepartment }, password);
     } else if (path === '/api/manager/staff/department') {
       const email = requiredUsername(body);
-      if (!Object.hasOwn(body, 'staffDepartment')) throw new RequestError(400, 'Personel reyonunu belirtin.');
-      const staffDepartment = staffDepartmentSelection(body.staffDepartment);
+      const staffDepartment = requiredStaffDepartment(body.staffDepartment);
       const result = await users.updateOne({ _id: email, ...staffScope }, { $set: { staffDepartment } });
       if (!result.matchedCount) throw new RequestError(404, 'Bu mağazada personel hesabı bulunamadı.');
     } else if (path === '/api/manager/staff/password') {
@@ -905,8 +904,10 @@ function createCore(database, challenge, scanEnabled) {
       const locations = role === 'admin' ? await storeList() : [
         storeId === pilotStore.id ? pilotStore : { id: storeId, name: (await stores.findOne({ _id: storeId }))?.name ?? storeId },
       ];
+      const assignment = role === 'staff' ? (await users.findOne({ _id: email }))?.staffDepartment : undefined;
+      const jobTitle = Object.hasOwn(staffJobTitles, assignment) ? staffJobTitles[assignment] : undefined;
       json(response, 200, { email, displayName, role, title: panels[role], canApprove, canChangePassword, storeId, stores: locations,
-        staffDepartments: role === 'manager' ? staffDepartments : undefined, scanEnabled: scanEnabled() });
+        jobTitle, staffDepartments: role !== 'staff' ? staffJobTitles : undefined, scanEnabled: scanEnabled() });
       return;
     }
     if (path.startsWith('/api/admin/')) return handleManagement(request, response, path, session);

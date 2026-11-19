@@ -25,7 +25,7 @@ Giriş formunda **Admin**, **Manager** veya **Staff** panelini seçin. Tester he
 
 **Yönetici girişi** için pilot hesabı `yonetici@muterminal.com`, başlangıç şifresi `1234567890`. Yönetici panelindeki **Personel Yönetimi** sekmesinde ad soyad ve kullanıcı adı girerek personel hesabı oluşturulur. İlk şifre boş bırakılırsa `1234567890` kullanılır. Yönetici kendi şifresini ve mağazasındaki personelin şifrelerini değiştirebilir. Personel, ana sayfadaki **Personel girişi** düğmesiyle kendi hesabını kullanır.
 
-Personel Yönetimi’nde yeni veya mevcut personele bir reyon atanabilir. Kasap ve Şarküteri görevleri **Kasap - Şarküteri** adıyla tek seçenek olarak atanır.
+Yeni personel hesaplarında dört iş unvanından biri seçilir. Yönetici **Personel Yönetimi**, admin ise **Sistem Yönetimi** bölümünden unvan atayabilir veya güncelleyebilir. Mevcut personel reyon atamaları iş unvanlarına karşılık gelir ve personel kendi unvanını panelinde görür.
 
 ## Operasyon modülleri
 
