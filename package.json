@@ -2,7 +2,7 @@
   "name": "muterminal-mvp",
   "private": true,
   "scripts": {
-    "dev": "node dev-server.cjs"
+    "dev": "node --watch dev-server.cjs"
   },
   "dependencies": {
     "mongodb": "7.6.0"

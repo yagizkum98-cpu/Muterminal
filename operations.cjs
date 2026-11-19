@@ -3,6 +3,8 @@ const assessments = [
   { choice: saleApproval, guarded: true },
   { choice: 'Satılamaz' },
   { choice: 'İncelemede' },
+  { choice: 'Depo İade' },
+  { choice: 'Cross-Dock Uygun', guarded: true, operation: 'Cross-Dock', from: ['Sevkiyata uygun', 'Sevkiyata yönlendirildi'] },
 ];
 const operations = {
   'RKS Blokaj': {
@@ -11,9 +13,9 @@ const operations = {
     initial: 'Blokajlı', blockLabel: 'RKS blokajı',
     fields: [{ name: 'blockReason', label: 'Blokaj nedeni', type: 'text', max: 500 }],
     actions: [
-      { choice: 'Blokaj devam' },
-      { choice: 'İncelemeye sevk' },
-      { choice: 'Blokaj kaldırma talebi', result: 'Yetkili sistem doğrulaması bekliyor' },
+      { choice: 'Blokaj devam', requestable: true },
+      { choice: 'İncelemeye sevk', requestable: true },
+      { choice: 'Blokaj kaldırma talebi', result: 'Yetkili sistem doğrulaması bekliyor', requestable: true },
     ],
   },
   'Delist Blokaj': {
@@ -44,9 +46,9 @@ const operations = {
     initial: 'İnceleme',
     fields: [{ name: 'expiryDate', label: 'Son kullanma tarihi', type: 'date' }],
     actions: [
-      { choice: 'Riskli ürünü ayır', result: 'Ayrıldı' },
-      { choice: 'Depoya iade', result: 'İadeye yönlendirildi' },
-      { choice: 'İncelemeye sevk' },
+      { choice: 'Riskli ürünü ayır', result: 'Ayrıldı', requestable: true },
+      { choice: 'Depoya iade', result: 'İadeye yönlendirildi', requestable: true },
+      { choice: 'İncelemeye sevk', requestable: true },
       { choice: saleApproval, guarded: true, from: ['İnceleme', 'İncelemeye sevk'] },
     ],
   },
@@ -71,7 +73,7 @@ const operations = {
       { name: 'physicalStock', label: 'Fiziksel sayım', type: 'number' },
     ],
     actions: [
-      { choice: 'Düzeltme talebi oluştur', result: 'Onay bekliyor', from: ['Sayım farkı', 'Düzeltme talebi reddedildi'] },
+      { choice: 'Düzeltme talebi oluştur', result: 'Onay bekliyor', from: ['Sayım farkı', 'Düzeltme talebi reddedildi'], requestable: true },
       { choice: 'Düzeltme talebini onayla', result: 'Düzeltme talebi onaylandı', from: ['Onay bekliyor'] },
       { choice: 'Düzeltme talebini reddet', result: 'Düzeltme talebi reddedildi', from: ['Onay bekliyor'] },
     ],
@@ -82,8 +84,8 @@ const operations = {
     initial: 'Kontrol bekliyor',
     fields: [{ name: 'dockNote', label: 'Sevkiyat kontrol notu', type: 'text', max: 500 }],
     actions: [
-      { choice: 'Sevkiyata uygun', result: 'Sevkiyata uygun', from: ['Kontrol bekliyor', 'Sevkiyata uygun değil'], guarded: true },
-      { choice: 'Sevkiyata uygun değil', result: 'Sevkiyata uygun değil', from: ['Kontrol bekliyor', 'Sevkiyata uygun'] },
+      { choice: 'Sevkiyata uygun', result: 'Sevkiyata uygun', from: ['Kontrol bekliyor', 'Sevkiyata uygun değil'], guarded: true, requestable: true },
+      { choice: 'Sevkiyata uygun değil', result: 'Sevkiyata uygun değil', from: ['Kontrol bekliyor', 'Sevkiyata uygun'], requestable: true },
       { choice: 'Sevkiyata yönlendir', result: 'Sevkiyata yönlendirildi', from: ['Sevkiyata uygun'], guarded: true, destination: true },
     ],
   },

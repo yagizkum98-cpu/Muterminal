@@ -6,9 +6,20 @@ const timeZone = 'Europe/Istanbul';
 const dateFormat = new Intl.DateTimeFormat('tr-TR', { timeZone, dateStyle: 'short', timeStyle: 'medium' });
 const dayFormat = new Intl.DateTimeFormat('sv-SE', { timeZone, dateStyle: 'short' });
 const historyModule = 'history';
+const decisionModule = 'mudecision';
+const dashboardModule = 'dashboard';
+const managementModule = 'management';
+const staffManagementModule = 'staff-management';
+const unassignedDepartment = 'unassigned';
+const roleNames = { admin: 'Admin', manager: 'Yönetici', staff: 'Personel' };
 
 let operations = {};
-let activeModule;
+let departments = {};
+let panel;
+let activeStore = '';
+let managedUsers = [];
+let activeDepartment = '';
+let activeModule = decisionModule;
 let lotFilter;
 let editingId;
 let entryRevision = 0;
@@ -28,53 +39,130 @@ function signed(number) {
   return number > 0 ? `+${number}` : String(number);
 }
 
+function inDepartment(record) {
+  return (!activeStore || record.storeId === activeStore) && (!activeDepartment || (record.department ?? unassignedDepartment) === activeDepartment);
+}
+
+function storeName(id) {
+  return panel.stores.find(store => store.id === id)?.name ?? id;
+}
+
+function departmentLabel(department) {
+  return departments[department] ?? 'Reyon atanmamış';
+}
+
+function departmentOptions() {
+  return '<option value="">Reyon seçin</option>' + Object.entries(departments).map(([id, name]) => (
+    `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`
+  )).join('');
+}
+
 function renderDetails(product) {
   if (!product.details) return '<small>Operasyon bilgileri eksik</small>';
   const values = operations[product.type].fields.map(field => {
     const value = product.details[field.name];
-    return [field.label, field.type === 'datetime-local' ? value.replace('T', ' ') : value];
+    return [field.label, field.type === 'datetime-local' ? (value?.replace('T', ' ') ?? '—') : (value ?? '—')];
   });
   if (product.details.destination) values.push(['Varış noktası', product.details.destination]);
   return values.map(([label, value]) => `<small>${escapeHtml(label)}</small><br>${escapeHtml(value)}<br>`).join('');
 }
 
+function deleteButton(product) {
+  return `<button type="button" class="delete-product" data-action="delete" data-id="${escapeHtml(product.id)}"><span aria-hidden="true">🗑️</span> Sil</button>`;
+}
+
 function rowActions(product) {
   const id = escapeHtml(product.id);
   const actions = [];
-  if (!product.details) {
+  if (!product.details && (panel.role !== 'staff' || product.createdBy === panel.email)) {
     actions.push(`<button type="button" data-action="edit" data-id="${id}">Bilgileri tamamla</button>`);
-  } else if (product.type === 'Geçici Blokaj' && product.locked) {
+  } else if (panel.canApprove && product.type === 'Geçici Blokaj' && product.locked && !product.proposal) {
     const available = product.actions.some(action => action.releaseTemporary);
     const disabled = available ? '' : ' disabled title="Blokaj bitiş zamanı henüz dolmadı"';
     actions.push(`<button type="button" data-action="release" data-id="${id}"${disabled}>Blokajı kaldır</button>`);
-  } else if (product.actions.length) {
-    actions.push(`<button type="button" data-action="decide" data-id="${id}">Operasyon kararı</button>`);
+  } else if (!product.proposal && product.actions.length) {
+    actions.push(`<button type="button" data-action="decide" data-id="${id}">${panel.canApprove ? 'Operasyon kararı' : 'Operasyon talebi'}</button>`);
   }
+  if (!product.proposal) actions.push(`<button type="button" class="secondary" data-action="assessment" data-id="${id}">${panel.canApprove ? 'MuDecision kararı' : 'MuDecision önerisi'}</button>`);
   actions.push(
-    `<button type="button" class="secondary" data-action="assessment" data-id="${id}">Satılabilirlik kararı</button>`,
     `<button type="button" class="secondary" data-action="trace" data-id="${id}">Lot geçmişi</button>`,
   );
+  if (panel.role === 'admin') actions.push(deleteButton(product));
   return actions.join('');
+}
+
+function renderProductStatus(product) {
+  return `<span class="tag">${escapeHtml(product.status)}</span>
+    ${product.proposal ? '<small class="risk tag warn">Onay bekliyor</small>' : ''}
+    ${product.assessment ? `<small class="risk">MuDecision · ${escapeHtml(product.assessment)}</small>` : ''}
+    ${product.risk ? `<small class="risk tag ${escapeHtml(product.risk.level)}">${escapeHtml(product.risk.label)}</small>` : ''}`;
+}
+
+function renderDecisionFiles() {
+  const query = $('decision-search').value.trim().toLocaleLowerCase('tr');
+  const files = new Map();
+  for (const product of products.filter(inDepartment)) {
+    const key = JSON.stringify([product.storeId, product.code, product.lot]);
+    if (!files.has(key)) files.set(key, []);
+    files.get(key).push(product);
+  }
+  const matching = [...files.values()].filter(file => file.some(product => (
+    [product.name, product.code, product.lot].join(' ').toLocaleLowerCase('tr').includes(query)
+  )));
+  $('decision-files').innerHTML = matching.map(file => {
+    const [product] = file;
+    return `<article class="decision-file" aria-labelledby="file-${escapeHtml(product.id)}">
+      <div class="decision-file-heading">
+        <div>
+          <h3 id="file-${escapeHtml(product.id)}">${escapeHtml(product.name)}</h3>
+          <small>${escapeHtml(storeName(product.storeId))} · Barkod ${escapeHtml(product.code)} · Lot ${escapeHtml(product.lot)}</small>
+        </div>
+        <button type="button" class="secondary" data-action="trace" data-id="${escapeHtml(product.id)}">Lot geçmişi</button>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th scope="col">Operasyon</th><th scope="col">Kayıt bilgisi</th><th scope="col">Durum ve risk</th><th scope="col">İşlem</th></tr></thead>
+          <tbody>${file.map(record => `
+            <tr>
+              <th scope="row">${escapeHtml(operations[record.type].title)}<br><small>${escapeHtml(departmentLabel(record.department))}</small></th>
+              <td class="details">${renderDetails(record)}</td>
+              <td>${renderProductStatus(record)}</td>
+              <td><div class="actions">
+                ${record.proposal ? '' : `<button type="button" data-action="assessment" data-id="${escapeHtml(record.id)}">${panel.canApprove ? 'MuDecision kararı' : 'MuDecision önerisi'}</button>`}
+                <button type="button" class="secondary" data-action="open-operation" data-id="${escapeHtml(record.id)}">Operasyon kaydına git</button>
+                ${panel.role === 'admin' ? deleteButton(record) : ''}
+              </div></td>
+            </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </article>`;
+  }).join('') || (files.size
+    ? '<p>Aramanızla eşleşen karar dosyası bulunamadı.</p>'
+    : activeDepartment ? '<p>Bu reyonda henüz ürün kaydı yok.</p>'
+    : '<p>Henüz ürün kaydı yok. Bir operasyon modülünden ürün eklediğinizde karar dosyası burada görünecek.</p>');
 }
 
 function renderRows() {
   const query = $('search').value.trim().toLocaleLowerCase('tr');
   const matching = products.filter(product => (
-    product.type === activeModule &&
+    product.type === activeModule && inDepartment(product) &&
     [product.name, product.code, product.lot].join(' ').toLocaleLowerCase('tr').includes(query)
   ));
+  const options = departmentOptions();
   $('rows').innerHTML = matching.map(product => `
-    <tr>
-      <td>${escapeHtml(product.name)}</td>
+    <tr id="record-${escapeHtml(product.id)}" tabindex="-1">
+      <td>${escapeHtml(product.name)}<br><small>${escapeHtml(storeName(product.storeId))} · ${escapeHtml(departmentLabel(product.department))}</small></td>
       <td>${escapeHtml(product.code)}<br><small>${escapeHtml(product.lot)}</small></td>
       <td>${escapeHtml(product.type === 'Depo Fark' ? (product.details ? signed(product.details.physicalStock - product.details.systemStock) : '—') : product.qty)}</td>
       <td class="details">${renderDetails(product)}</td>
+      <td>${renderProductStatus(product)}</td>
       <td>
-        <span class="tag">${escapeHtml(product.status)}</span>
-        ${product.assessment ? `<small class="risk">MuDecision · ${escapeHtml(product.assessment)}</small>` : ''}
-        ${product.risk ? `<small class="risk tag ${escapeHtml(product.risk.level)}">${escapeHtml(product.risk.label)}</small>` : ''}
+        <div class="actions">${rowActions(product)}</div>
+        ${product.department == null && panel.role !== 'staff' ? `<form class="department-assignment" data-product="${escapeHtml(product.id)}">
+          <select name="department" aria-label="${escapeHtml(product.name)} için reyon" required>${options}</select>
+          <button type="submit" class="secondary">Reyon ata</button>
+        </form>` : ''}
       </td>
-      <td><div class="actions">${rowActions(product)}</div></td>
     </tr>`).join('') || '<tr><td colspan="6">Kayıt bulunamadı</td></tr>';
 }
 
@@ -83,21 +171,127 @@ function renderHistory() {
   const date = $('history-date').value;
   const operation = $('history-operation').value;
   const matching = logs.filter(log => (
-    (!lotFilter || (log.code === lotFilter.code && log.lot === lotFilter.lot)) &&
+    inDepartment(log) &&
+    (!lotFilter || (log.storeId === lotFilter.storeId && log.code === lotFilter.code && log.lot === lotFilter.lot)) &&
     (!operation || log.type === operation) &&
     (!date || dayFormat.format(new Date(log.time)) === date) &&
-    [log.name, log.code, log.lot, log.staff, log.choice, log.reason, log.result, log.destination]
+    [log.name, log.code, log.lot, log.staff, log.actor, log.choice, log.reason, log.result, log.destination]
       .join(' ').toLocaleLowerCase('tr').includes(query)
   ));
   $('history').innerHTML = matching.map(log => `
     <tr>
       <td>${escapeHtml(dateFormat.format(new Date(log.time)))}</td>
-      <td>${escapeHtml(log.name)}<br><small>${escapeHtml(log.code)} · ${escapeHtml(log.lot)}</small></td>
+      <td>${escapeHtml(log.name)}<br><small>${escapeHtml(storeName(log.storeId))} · ${escapeHtml(log.code)} · ${escapeHtml(log.lot)} · ${escapeHtml(departmentLabel(log.department))}</small></td>
       <td>${escapeHtml(operations[log.type].title)}</td>
-      <td>${escapeHtml(log.staff)}</td>
+      <td>${escapeHtml(log.staff)}${log.actor ? `<br><small>${escapeHtml(log.actor)}</small>` : ''}</td>
       <td>${log.kind === 'assessment' ? '<small>MuDecision</small><br>' : ''}${escapeHtml(log.choice)}<br><small>${escapeHtml(log.reason)}</small></td>
       <td>${escapeHtml(log.result)}${log.destination ? `<br><small>${escapeHtml(log.destination)}</small>` : ''}</td>
     </tr>`).join('') || '<tr><td colspan="6">Karar kaydı bulunamadı</td></tr>';
+}
+
+function reportRows() {
+  const byStore = panel.role === 'admin';
+  const groups = new Map();
+  const getGroup = key => {
+    if (!groups.has(key)) groups.set(key, { name: byStore ? storeName(key) : key, entries: 0, decisions: 0, pending: 0 });
+    return groups.get(key);
+  };
+  if (byStore) for (const store of panel.stores) if (!activeStore || store.id === activeStore) getGroup(store.id);
+  for (const product of products.filter(inDepartment)) {
+    getGroup(byStore ? product.storeId : (product.createdBy || 'Önceki kayıtlar')).entries++;
+    if (product.proposal) getGroup(byStore ? product.storeId : product.proposal.actor).pending++;
+    else if (product.status === 'Onay bekliyor') getGroup(byStore ? product.storeId : (product.createdBy || 'Önceki kayıtlar')).pending++;
+  }
+  for (const log of logs.filter(inDepartment)) {
+    if (log.choice !== 'Kontrol kaydı oluşturuldu') getGroup(byStore ? log.storeId : (log.actor || log.staff)).decisions++;
+  }
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+}
+
+function renderDashboard() {
+  $('report-group').textContent = panel.role === 'admin' ? 'Mağaza' : 'Personel';
+  $('report-title').textContent = panel.role === 'admin' ? 'Mağaza raporları' : 'Personel performansı';
+  $('report-rows').innerHTML = reportRows().map(row => `
+    <tr><th scope="row">${escapeHtml(row.name)}</th><td>${row.entries}</td><td>${row.decisions}</td><td>${row.pending}</td></tr>`
+  ).join('') || '<tr><td colspan="4">Henüz raporlanacak işlem yok.</td></tr>';
+  const pending = products.filter(product => inDepartment(product) && (product.proposal || product.status === 'Onay bekliyor'));
+  $('approval-list').innerHTML = pending.map(product => {
+    const id = escapeHtml(product.id);
+    const proposal = product.proposal;
+    return `<article class="approval-item">
+      <h3>${escapeHtml(product.name)}</h3>
+      <p>${escapeHtml(storeName(product.storeId))} · ${escapeHtml(operations[product.type].title)} · Lot ${escapeHtml(product.lot)}</p>
+      ${proposal ? `<p><strong>${escapeHtml(proposal.choice)}</strong> · ${escapeHtml(proposal.actor)}</p><p>${escapeHtml(proposal.reason)}</p>` : '<p>Depo farkı onay bekliyor.</p>'}
+      <p><button type="button" class="secondary" data-action="open-operation" data-id="${id}">Operasyon kaydına git</button></p>
+      ${proposal && panel.canApprove ? `<form data-review="${id}" data-proposal="${escapeHtml(proposal.id)}">
+        <label for="review-${id}">İnceleme gerekçesi</label>
+        <textarea id="review-${id}" name="reason" maxlength="1000" required></textarea>
+        <div class="actions"><button type="submit" value="approve">Onayla</button><button type="submit" value="reject" class="secondary">Reddet</button></div>
+      </form>` : ''}
+    </article>`;
+  }).join('') || '<p>Bekleyen talep yok.</p>';
+}
+
+function configureStores() {
+  const options = panel.stores.map(store => `<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)}</option>`).join('');
+  const filter = $('store-filter');
+  filter.innerHTML = '<option value="">Tüm mağazalar</option>' + options;
+  filter.value = activeStore;
+  for (const id of ['entry-store', 'user-store']) {
+    const select = $(id);
+    const previous = select.value;
+    select.innerHTML = options;
+    select.value = previous || activeStore || panel.storeId;
+  }
+}
+
+async function loadManagement() {
+  const response = await requestApi('/api/admin/management');
+  if (!response.ok) throw new Error('Yönetim verileri yüklenemedi.');
+  const { users, stores, settings } = await response.json();
+  managedUsers = users;
+  panel.stores = stores;
+  configureStores();
+  $('managed-stores').innerHTML = stores.map(store => `<li>${escapeHtml(store.name)} <small>${escapeHtml(store.id)}</small></li>`).join('');
+  $('managed-users').innerHTML = users.map(user => `
+    <li>${user.displayName ? `${escapeHtml(user.displayName)} · ` : ''}${escapeHtml(user.email)} · ${escapeHtml(user.roles.map(role => roleNames[role]).join(', '))} · ${escapeHtml(storeName(user.storeId))}
+      ${user.canApprove && user.roles.includes('admin') ? ' · Onay yetkili' : ''}
+      ${user.builtIn || user.email === panel.email ? '' : `<button type="button" class="secondary" data-user="${escapeHtml(user.email)}" data-edit>Yetkiyi düzenle</button>
+      <button type="button" class="secondary" data-user="${escapeHtml(user.email)}" data-active="${!user.active}">${user.active ? 'Devre dışı bırak' : 'Etkinleştir'}</button>`}
+    </li>`).join('');
+  $('product-source').value = settings.productSource;
+  $('expiry-warning').value = settings.expiryWarningDays;
+  $('erp-endpoint').value = settings.erpEndpoint;
+  $('wms-endpoint').value = settings.wmsEndpoint;
+  $('rks-scope').checked = settings.blockRksAcrossLots;
+}
+
+function editManagedUser(user) {
+  $('user-form').reset();
+  $('user-email').value = user?.email ?? '';
+  $('user-email').readOnly = Boolean(user);
+  $('user-name-field').hidden = Boolean(user);
+  $('user-name').disabled = Boolean(user);
+  $('user-name').required = !user;
+  $('user-password-field').hidden = Boolean(user);
+  $('user-password').disabled = Boolean(user);
+  $('user-role').value = user?.roles[0] ?? 'staff';
+  $('user-store').value = user?.storeId ?? panel.storeId;
+  $('user-approval').hidden = $('user-role').value !== 'admin';
+  $('user-approval').querySelector('input').checked = user?.canApprove ?? false;
+  $('save-user').textContent = user ? 'Yetkiyi kaydet' : 'Kullanıcı oluştur';
+  $('cancel-user-edit').hidden = !user;
+}
+
+async function loadTeam() {
+  const response = await requestApi('/api/manager/staff');
+  if (!response.ok) throw new Error('Personel listesi yüklenemedi.');
+  const staff = await response.json();
+  $('team-members').innerHTML = staff.map(member => `<li>
+    <strong>${escapeHtml(member.displayName ?? member.email)}</strong> · ${escapeHtml(member.email)}
+    ${member.active ? '' : ' · Devre dışı'}
+    <button type="button" class="secondary" data-member="${escapeHtml(member.email)}">Şifreyi değiştir</button>
+  </li>`).join('') || '<li>Henüz personel hesabı yok.</li>';
 }
 
 function renderEntry(product) {
@@ -113,6 +307,12 @@ function renderEntry(product) {
     $(id).readOnly = Boolean(product);
   }
   $('entry-title').textContent = product ? 'Operasyon bilgilerini tamamla' : 'Manuel ürün kaydı';
+  $('department-field').hidden = Boolean(product);
+  $('department').disabled = Boolean(product);
+  $('department').value = departments[activeDepartment] ? activeDepartment : '';
+  $('entry-store-field').hidden = Boolean(product) || panel.role !== 'admin';
+  $('entry-store').disabled = $('entry-store-field').hidden;
+  $('entry-store').value = activeStore || panel.storeId;
   $('save-product').textContent = product ? 'Bilgileri kaydet' : 'Ürünü kaydet';
   $('cancel-edit').hidden = !product;
   $('quantity-label').textContent = quantityLabel;
@@ -132,57 +332,105 @@ function renderEntry(product) {
 
 function selectModule(type, product) {
   const isHistory = type === historyModule;
+  const isDecision = type === decisionModule;
+  const isDashboard = type === dashboardModule;
+  const isManagement = type === managementModule;
+  const isStaffManagement = type === staffManagementModule;
+  const isOperation = Object.hasOwn(operations, type);
   activeModule = type;
   lotFilter = product;
   currentId = null;
+  editingId = undefined;
   for (const button of $('modules').querySelectorAll('button')) {
     button.setAttribute('aria-pressed', String(button.dataset.module === type));
   }
+  $('decision-files-panel').hidden = !isDecision;
+  $('dashboard-panel').hidden = !isDashboard;
+  $('management-panel').hidden = !isManagement;
+  $('staff-management-panel').hidden = !isStaffManagement;
+  $('stats').hidden = isDecision || isManagement || isStaffManagement || panel.role === 'staff';
+  $('module-header').hidden = !isOperation && !isHistory;
+  $('entry-panel').hidden = !isOperation;
+  $('records-panel').hidden = !isOperation;
+  $('decision').hidden = true;
+  $('history-panel').hidden = !isHistory;
+  if (isDecision) {
+    if (lastState !== undefined) renderDecisionFiles();
+    return;
+  }
+  if (isDashboard) {
+    renderDashboard();
+    return;
+  }
+  if (isManagement) {
+    loadManagement().catch(error => showStatus('management-status', error.message, true));
+    return;
+  }
+  if (isStaffManagement) {
+    $('manager-password').hidden = !panel.canChangePassword;
+    loadTeam().catch(error => showStatus('team-status', error.message, true));
+    return;
+  }
+
   const module = isHistory ? {
-    title: 'Karar Geçmişi', feature: 'MuLog',
-    description: 'Kullanıcı, tarih, ürün, lot, gerekçe ve sonuç bazında kararları inceleyin.',
+    title: panel.role === 'staff' ? 'Kendi İşlem Geçmişim' : 'Karar Geçmişi', feature: 'MuLog',
+    description: 'Tarih, ürün, lot, gerekçe ve sonuca göre kararları inceleyin.',
   } : operations[type];
   $('module-title').textContent = module.title;
   $('module-feature').textContent = module.feature;
   $('module-description').textContent = module.description;
-  $('entry-panel').hidden = isHistory;
-  $('records-panel').hidden = isHistory;
-  $('decision').hidden = true;
-  $('history-panel').hidden = !isHistory;
   $('clear-lot').hidden = !product;
   $('lot-filter').hidden = !product;
   if (product) {
-    $('lot-filter').textContent = `${product.name} · Barkod ${product.code} · Lot ${product.lot}`;
+    $('lot-filter').textContent = `${product.name} · ${storeName(product.storeId)} · Barkod ${product.code} · Lot ${product.lot}`;
     for (const id of ['history-search', 'history-date', 'history-operation']) $(id).value = '';
   }
   if (isHistory) {
     renderHistory();
   } else {
     $('search').value = '';
+    showStatus('records-status', '');
     renderEntry();
     renderRows();
   }
 }
 
 function render() {
+  const visibleProducts = products.filter(inDepartment);
   const stats = [
-    ['Toplam ürün kaydı', products.length],
-    ['RKS blokajlı', products.filter(product => product.type === 'RKS Blokaj' && product.locked).length],
-    ['Delist blokajlı', products.filter(product => product.type === 'Delist Blokaj' && product.locked).length],
-    ['Geçici blokajlı', products.filter(product => product.type === 'Geçici Blokaj' && product.locked).length],
-    ['SKT kontrolü', products.filter(product => product.type === 'SKT').length],
-    ['Karar kaydı', logs.length],
+    ['Toplam ürün kaydı', visibleProducts.length],
+    ['RKS blokajlı', visibleProducts.filter(product => product.type === 'RKS Blokaj' && product.locked).length],
+    ['Delist blokajlı', visibleProducts.filter(product => product.type === 'Delist Blokaj' && product.locked).length],
+    ['Geçici blokajlı', visibleProducts.filter(product => product.type === 'Geçici Blokaj' && product.locked).length],
+    ['SKT kontrolü', visibleProducts.filter(product => product.type === 'SKT').length],
+    ['Karar kaydı', logs.filter(inDepartment).length],
   ];
   $('stats').innerHTML = stats.map(([label, value]) => `<div class="card"><small>${label}</small><b>${value}</b></div>`).join('');
   if (activeModule === historyModule) renderHistory();
-  else renderRows();
-  if (currentId) renderDecisionChoices(products.find(product => product.id === currentId));
+  else if (activeModule === decisionModule) renderDecisionFiles();
+  else if (activeModule === dashboardModule) renderDashboard();
+  else if (Object.hasOwn(operations, activeModule)) renderRows();
+  if (editingId && !products.some(product => product.id === editingId)) renderEntry();
+  if (currentId) {
+    const product = products.find(item => item.id === currentId);
+    if (product) renderDecisionChoices(product);
+    else {
+      currentId = null;
+      $('decision').hidden = true;
+    }
+  }
+}
+
+async function requestApi(path, options) {
+  const response = await fetch(path, options);
+  if (response.status === 401) window.location.replace(panel ? `/?panel=${panel.role}#admin-giris` : '/#admin-giris');
+  return response;
 }
 
 async function refresh() {
   const id = ++refreshId;
   try {
-    const response = await fetch('/api/state');
+    const response = await requestApi('/api/state');
     if (!response.ok) throw new Error();
     const snapshot = await response.text();
     if (id !== refreshId) return;
@@ -193,19 +441,22 @@ async function refresh() {
     }
     showStatus('sync-status', '');
     $('export').disabled = false;
+    $('download-report').disabled = false;
   } catch {
     if (id !== refreshId) return;
     showStatus('sync-status', 'Kayıtlar güncellenemedi. MuTerminal sunucusunu ve MongoDB bağlantısını kontrol edin.', true);
     $('export').disabled = true;
+    $('download-report').disabled = true;
   }
 }
 
-async function post(path, body) {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+async function writeApi(path, method, body) {
+  const options = { method };
+  if (body !== undefined) {
+    options.headers = { 'Content-Type': 'application/json' };
+    options.body = JSON.stringify(body);
+  }
+  const response = await requestApi(path, options);
   if (response.ok) return;
   const result = await response.json().catch(() => ({}));
   throw new Error(result.error || 'Kayıt işlemi tamamlanamadı.');
@@ -220,20 +471,20 @@ $('product-form').addEventListener('submit', async event => {
   const revision = entryRevision;
   const id = editingId;
   const data = new FormData(form);
-  const { name, code, lot, qty } = Object.fromEntries(data);
+  const { name, code, lot, qty, department, storeId } = Object.fromEntries(data);
   const details = Object.fromEntries(operations[module].fields.map(field => [
     field.name, field.type === 'number' ? Number(data.get(field.name)) : data.get(field.name),
   ]));
   button.disabled = true;
   showStatus('product-status', 'Kaydediliyor…');
   try {
-    if (id) await post(`/api/products/${id}/details`, { details });
-    else await post('/api/products', { name, code, lot, type: module, qty: Number(qty), expired: data.has('expired'), details });
+    if (id) await writeApi(`/api/products/${id}/details`, 'POST', { details });
+    else await writeApi('/api/products', 'POST', { name, code, lot, department, storeId, type: module, qty: Number(qty), expired: data.has('expired'), details });
     if (module === activeModule && revision === entryRevision) {
       renderEntry();
       $('search').value = '';
       renderRows();
-      showStatus('product-status', id ? 'Operasyon bilgileri kaydedildi.' : 'Ürün kaydedildi.');
+      showStatus('product-status', id ? 'Operasyon bilgileri kaydedildi.' : `Ürün kaydedildi · ${departmentLabel(department)}`);
     }
     await refresh();
   } catch (error) {
@@ -262,14 +513,39 @@ function renderDecisionChoices(product) {
   updateDestination();
 }
 
-$('rows').addEventListener('click', event => {
+async function deleteProduct(product, button) {
+  const label = `${product.name} · ${operations[product.type].title} · ${departmentLabel(product.department)} · Lot ${product.lot}`;
+  if (button.disabled || !window.confirm(`${label}\n\nBu kayıt ve bağlı karar geçmişi kalıcı olarak silinecek. İşlem geri alınamaz. Silinsin mi?`)) return;
+  const status = activeModule === decisionModule ? 'decision-file-status' : 'records-status';
+  button.disabled = true;
+  showStatus(status, 'Siliniyor…');
+  try {
+    await writeApi(`/api/products/${product.id}`, 'DELETE');
+    showStatus(status, 'Kayıt ve bağlı karar geçmişi silindi.');
+    await refresh();
+  } catch (error) {
+    showStatus(status, error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function handleProductAction(event) {
   const button = event.target.closest('button[data-id]');
   if (!button) return;
   const product = products.find(item => item.id === button.dataset.id);
   if (!product) return;
+  if (button.dataset.action === 'delete') return deleteProduct(product, button);
   if (button.dataset.action === 'trace') {
     selectModule(historyModule, product);
     $('module-title').scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
+  if (button.dataset.action === 'open-operation') {
+    selectModule(product.type);
+    const row = $(`record-${product.id}`);
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.focus({ preventScroll: true });
     return;
   }
   if (button.dataset.action === 'edit') {
@@ -280,8 +556,10 @@ $('rows').addEventListener('click', event => {
   if ($('decision-form').querySelector('button').disabled) return;
   currentId = product.id;
   decisionKind = button.dataset.action === 'assessment' ? 'assessment' : undefined;
-  $('decision-title').textContent = decisionKind ? 'MuDecision · Satılabilirlik kararı' : 'Operasyon kararı';
-  $('selected').textContent = `${product.name} · ${operations[product.type].title} · ${product.lot}`;
+  $('decision-title').textContent = decisionKind ? (panel.canApprove ? 'MuDecision kararı' : 'MuDecision önerisi') : (panel.canApprove ? 'Operasyon kararı' : 'Operasyon talebi');
+  $('selected').textContent = `${product.name} · ${storeName(product.storeId)} · ${operations[product.type].title} · Barkod ${product.code} · Lot ${product.lot}`;
+  $('proposal-field').hidden = !decisionKind || !panel.canApprove;
+  $('submit-as-proposal').checked = false;
   $('choice').value = '';
   $('reason').value = '';
   $('destination').value = '';
@@ -290,9 +568,53 @@ $('rows').addEventListener('click', event => {
     $('choice').value = product.actions.find(action => action.releaseTemporary).choice;
   }
   showStatus('decision-status', '');
+  if (activeModule === decisionModule) showStatus('decision-file-status', '');
   $('decision').hidden = false;
   $('decision').scrollIntoView({ behavior: 'smooth' });
   $('staff').focus({ preventScroll: true });
+}
+
+$('rows').addEventListener('click', handleProductAction);
+$('decision-files').addEventListener('click', handleProductAction);
+$('approval-list').addEventListener('click', handleProductAction);
+
+$('approval-list').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.target;
+  const outcome = event.submitter?.value;
+  if (!outcome) return;
+  const buttons = [...form.querySelectorAll('button')];
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    await writeApi(`/api/products/${form.dataset.review}/review`, 'POST', {
+      outcome, proposalId: form.dataset.proposal, reason: new FormData(form).get('reason'),
+    });
+    showStatus('review-status', outcome === 'approve' ? 'Talep onaylandı.' : 'Talep reddedildi.');
+    await refresh();
+  } catch (error) {
+    showStatus('review-status', error.message, true);
+  } finally {
+    buttons.forEach(button => { button.disabled = false; });
+  }
+});
+
+$('rows').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.target;
+  const button = form.querySelector('button');
+  if (button.disabled) return;
+  const department = new FormData(form).get('department');
+  button.disabled = true;
+  showStatus('records-status', 'Reyon atanıyor…');
+  try {
+    await writeApi(`/api/products/${form.dataset.product}/department`, 'POST', { department });
+    showStatus('records-status', `Reyon atandı · ${departmentLabel(department)}`);
+    await refresh();
+  } catch (error) {
+    showStatus('records-status', error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 });
 
 $('decision-form').addEventListener('submit', async event => {
@@ -306,10 +628,13 @@ $('decision-form').addEventListener('submit', async event => {
   try {
     const body = Object.fromEntries(new FormData(form));
     if (decisionKind) body.kind = decisionKind;
-    await post(`/api/products/${id}/decisions`, body);
+    if (decisionKind && $('submit-as-proposal').checked) body.submitAsProposal = true;
+    await writeApi(`/api/products/${id}/decisions`, 'POST', body);
     if (currentId === id) {
       $('decision').hidden = true;
       currentId = null;
+      const status = activeModule === decisionModule ? 'decision-file-status' : 'records-status';
+      showStatus(status, !panel.canApprove || body.submitAsProposal ? 'Talep onaya gönderildi.' : 'Karar kaydedildi.');
     }
     await refresh();
   } catch (error) {
@@ -320,6 +645,9 @@ $('decision-form').addEventListener('submit', async event => {
 });
 
 $('search').addEventListener('input', renderRows);
+$('decision-search').addEventListener('input', () => {
+  if (lastState !== undefined) renderDecisionFiles();
+});
 $('choice').addEventListener('change', updateDestination);
 $('cancel-edit').addEventListener('click', () => renderEntry());
 $('clear-lot').addEventListener('click', () => selectModule(historyModule));
@@ -327,6 +655,127 @@ $('modules').addEventListener('click', event => {
   const button = event.target.closest('button[data-module]');
   if (button && (button.dataset.module !== activeModule || lotFilter)) selectModule(button.dataset.module);
 });
+$('departments').addEventListener('click', event => {
+  const button = event.target.closest('button[data-department]');
+  if (!button || button.dataset.department === activeDepartment) return;
+  activeDepartment = button.dataset.department;
+  for (const item of $('departments').querySelectorAll('button')) {
+    item.setAttribute('aria-pressed', String(item === button));
+  }
+  if (!editingId) $('department').value = departments[activeDepartment] ? activeDepartment : '';
+  currentId = null;
+  $('decision').hidden = true;
+  showStatus('decision-file-status', '');
+  showStatus('records-status', '');
+  if (lastState !== undefined) render();
+});
+$('store-filter').addEventListener('change', event => {
+  activeStore = event.target.value;
+  currentId = null;
+  $('decision').hidden = true;
+  if (editingId) renderEntry();
+  else $('entry-store').value = activeStore || panel.storeId;
+  if (lastState !== undefined) render();
+});
+$('user-role').addEventListener('change', event => { $('user-approval').hidden = event.target.value !== 'admin'; });
+
+const managementForms = {
+  'store-form': ['/api/admin/stores', 'Mağaza eklendi.'],
+  'user-form': ['/api/admin/users', 'Kullanıcı oluşturuldu.'],
+  'settings-form': ['/api/admin/settings', 'Ayarlar kaydedildi.'],
+};
+for (const [id, [path, message]] of Object.entries(managementForms)) {
+  $(id).addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button');
+    const values = Object.fromEntries(new FormData(form));
+    if (id === 'settings-form') {
+      values.expiryWarningDays = Number(values.expiryWarningDays);
+      values.blockRksAcrossLots = Boolean(values.blockRksAcrossLots);
+    }
+    if (id === 'user-form') values.canApprove = Boolean(values.canApprove);
+    const editingUser = id === 'user-form' && $('user-email').readOnly;
+    button.disabled = true;
+    try {
+      await writeApi(editingUser ? '/api/admin/users/permissions' : path, 'POST', values);
+      if (id === 'user-form') editManagedUser();
+      if (id === 'store-form') form.reset();
+      await loadManagement();
+      showStatus('management-status', editingUser ? 'Rol ve mağaza yetkileri güncellendi.' : message);
+      await refresh();
+    } catch (error) {
+      showStatus('management-status', error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+$('managed-users').addEventListener('click', async event => {
+  const button = event.target.closest('button[data-user]');
+  if (!button) return;
+  if (button.hasAttribute('data-edit')) {
+    editManagedUser(managedUsers.find(user => user.email === button.dataset.user));
+    $('user-role').focus();
+    return;
+  }
+  button.disabled = true;
+  try {
+    await writeApi('/api/admin/users/status', 'POST', { email: button.dataset.user, active: button.dataset.active === 'true' });
+    await loadManagement();
+    showStatus('management-status', 'Hesap durumu güncellendi.');
+  } catch (error) {
+    showStatus('management-status', error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+$('cancel-user-edit').addEventListener('click', () => editManagedUser());
+
+$('team-members').addEventListener('click', event => {
+  const button = event.target.closest('button[data-member]');
+  if (!button) return;
+  $('team-password').reset();
+  $('team-password-user').value = button.dataset.member;
+  $('team-password-target').textContent = button.dataset.member;
+  $('team-password').hidden = false;
+  $('team-password-new').focus();
+});
+$('cancel-team-password').addEventListener('click', () => {
+  $('team-password').reset();
+  $('team-password').hidden = true;
+});
+
+const teamForms = {
+  'team-create': ['/api/manager/staff', 'Personel hesabı oluşturuldu.'],
+  'team-password': ['/api/manager/staff/password', 'Personel şifresi değiştirildi.'],
+  'manager-password': ['/api/manager/password'],
+};
+for (const [id, [path, message]] of Object.entries(teamForms)) {
+  $(id).addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      await writeApi(path, 'POST', Object.fromEntries(new FormData(form)));
+      form.reset();
+      if (id === 'manager-password') {
+        window.location.replace('/?panel=manager&password=changed#admin-giris');
+        return;
+      }
+      if (id === 'team-password') form.hidden = true;
+      await loadTeam();
+      showStatus('team-status', message);
+    } catch (error) {
+      showStatus('team-status', error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
 for (const id of ['history-search', 'history-date', 'history-operation']) $(id).addEventListener('input', renderHistory);
 $('operation-fields').addEventListener('input', () => {
   if (activeModule !== 'Depo Fark') return;
@@ -336,14 +785,20 @@ $('operation-fields').addEventListener('input', () => {
   $('stock-preview').hidden = !valid;
   if (valid) $('stock-preview').textContent = `Sayım farkı ${signed(physical.valueAsNumber - system.valueAsNumber)} adet`;
 });
-$('export').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify({ products, logs }, null, 2)], { type: 'application/json' });
+function downloadJson(data, name) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = 'muterminal-kayitlar.json';
+  link.download = name;
   link.click();
   URL.revokeObjectURL(link.href);
+}
+
+$('export').addEventListener('click', () => {
+  const visible = products.filter(product => inDepartment(product) && (panel.role !== 'staff' || product.createdBy === panel.email));
+  downloadJson({ products: visible, logs: logs.filter(inDepartment) }, activeDepartment ? `muterminal-${activeDepartment}-kayitlar.json` : 'muterminal-kayitlar.json');
 });
+$('download-report').addEventListener('click', () => downloadJson(reportRows(), 'muterminal-operasyon-raporu.json'));
 
 async function poll() {
   await refresh();
@@ -352,17 +807,35 @@ async function poll() {
 
 async function start() {
   try {
-    const response = await fetch('/api/operations');
-    if (!response.ok) throw new Error();
-    operations = await response.json();
+    const [operationResponse, departmentResponse, contextResponse] = await Promise.all([
+      requestApi('/api/operations'), requestApi('/api/departments'), requestApi('/api/context'),
+    ]);
+    if (!operationResponse.ok || !departmentResponse.ok || !contextResponse.ok) throw new Error();
+    [operations, departments, panel] = await Promise.all([operationResponse.json(), departmentResponse.json(), contextResponse.json()]);
+    $('panel-role').textContent = panel.title;
+    const identity = panel.displayName ? `${panel.displayName} (${panel.email})` : panel.email;
+    $('panel-account').textContent = `${identity} · ${panel.role === 'admin' ? 'Tüm mağazalar' : storeName(panel.storeId)}`;
+    document.title = panel.title;
+    $('staff').readOnly = panel.role === 'staff';
+    if ($('staff').readOnly) $('staff').value = panel.displayName ?? panel.email;
+    $('store-filter-field').hidden = panel.role !== 'admin';
+    configureStores();
     const options = Object.entries(operations);
-    $('modules').innerHTML = options.map(([id, operation]) => (
+    if (panel.role !== 'staff') $('modules').insertAdjacentHTML('afterbegin', '<button type="button" data-module="dashboard">Dashboard</button>');
+    $('modules').insertAdjacentHTML('beforeend', options.map(([id, operation]) => (
       `<button type="button" data-module="${escapeHtml(id)}">${escapeHtml(operation.title)}</button>`
-    )).join('') + '<button type="button" data-module="history">Karar Geçmişi</button>';
+    )).join('') + `<button type="button" data-module="history">${panel.role === 'staff' ? 'Kendi İşlem Geçmişim' : 'Karar Geçmişi'}</button>`);
+    if (panel.role === 'admin') $('modules').insertAdjacentHTML('beforeend', '<button type="button" data-module="management">Sistem Yönetimi</button>');
+    if (panel.role === 'manager') $('modules').insertAdjacentHTML('beforeend', '<button type="button" data-module="staff-management">Personel Yönetimi</button>');
     $('history-operation').innerHTML = '<option value="">Tüm operasyonlar</option>' + options.map(([id, operation]) => (
       `<option value="${escapeHtml(id)}">${escapeHtml(operation.title)}</option>`
     )).join('');
-    selectModule(options[0][0]);
+    const departmentFilters = [...Object.entries(departments), [unassignedDepartment, 'Reyon atanmamış']];
+    $('departments').insertAdjacentHTML('beforeend', departmentFilters.map(([id, name]) => (
+      `<button type="button" data-department="${escapeHtml(id)}" aria-pressed="false">${escapeHtml(name)}</button>`
+    )).join(''));
+    $('department').innerHTML = departmentOptions();
+    selectModule(panel.role === 'staff' ? decisionModule : dashboardModule);
     poll();
   } catch {
     showStatus('sync-status', 'Operasyon modülleri yüklenemedi. MuTerminal sunucusunu kontrol edin.', true);
@@ -370,4 +843,7 @@ async function start() {
   }
 }
 
+window.addEventListener('pageshow', event => {
+  if (event.persisted) window.location.reload();
+});
 start();
