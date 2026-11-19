@@ -25,6 +25,7 @@ interface Props {
   displayName: string | null;
   challenge: IssuedChallenge | null;
   loginError: string | null;
+  warehouseLogin: boolean;
   canScan: boolean;
   initialCode: string;
   initialLot: string;
@@ -32,6 +33,13 @@ interface Props {
   mobile: boolean;
   initialTab: Exclude<MobileSection, 'home'>;
 }
+
+const loginErrors: Record<string, string> = {
+  bilgi: 'Kullanıcı adı veya şifre hatalı.',
+  dogrulama: 'Doğrulama kodu hatalı veya süresi dolmuş.',
+  yetki: 'Bu hesap depo paneline erişemiyor.',
+  depo: 'Bu hesap için tek bir depo tanımlanmalı.',
+};
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, query }) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -54,8 +62,8 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, 
     email: session?.email ?? null,
     displayName: session?.displayName ?? null,
     challenge,
-    loginError: query.giris === 'bilgi' ? 'Kullanıcı adı veya şifre hatalı.'
-      : query.giris === 'dogrulama' ? 'Doğrulama kodu hatalı veya süresi dolmuş.' : null,
+    loginError: typeof query.giris === 'string' && Object.hasOwn(loginErrors, query.giris) ? loginErrors[query.giris] : null,
+    warehouseLogin: query.panel === 'depo',
     canScan: session?.role === 'staff' && scanEnabled(),
     initialCode: typeof query.code === 'string' ? query.code.slice(0, 512) : '',
     initialLot: typeof query.lot === 'string' ? query.lot.slice(0, 80) : '',
@@ -341,7 +349,7 @@ function Reporting({ report, openLot }: { report: TraceReport | PersonalReport; 
   </div>;
 }
 
-export default function Trace({ role, access, email, displayName, challenge, loginError, canScan, initialCode, initialLot, initialStore, mobile, initialTab }: Props) {
+export default function Trace({ role, access, email, displayName, challenge, loginError, warehouseLogin, canScan, initialCode, initialLot, initialStore, mobile, initialTab }: Props) {
   const t = useTranslate();
   const [code, setCode] = useState(initialCode);
   const [filterLot, setFilterLot] = useState(initialLot);
@@ -358,6 +366,8 @@ export default function Trace({ role, access, email, displayName, challenge, log
   const productId = current?.operations[0]?.id;
   const canLookup = Boolean(access && access.role !== 'super');
   const mobileParam = mobile ? '&mobil=1' : '';
+  const signInHref = warehouseLogin || access?.role === 'warehouse' ? `/trace?panel=depo${mobileParam}`
+    : mobile ? '/trace?mobil=1' : '/trace';
 
   async function loadLookup(value: string, filter: string, preferredStore?: string) {
     const params = new URLSearchParams({ code: value });
@@ -442,7 +452,7 @@ export default function Trace({ role, access, email, displayName, challenge, log
       </div>
     </header>
     <main className={styles.wrap}>
-      {access && <ChangePassword mobile={mobile} signIn={mobile ? '/trace?mobil=1' : '/trace'} />}
+      {access && <ChangePassword mobile={mobile} signIn={signInHref} />}
       <div className={styles.hero}>
         <h1>{access?.role === 'super' ? t("MU TRACE platform yönetimi") : t("Ürün izlenebilirliği")}</h1>
         <p>{access ? `${t(traceRoles[access.role])} · ${displayName ?? email}` : t("Barkoddan lota, ürün hareketlerinden kontrol ve onay geçmişine.")}</p>
@@ -451,10 +461,14 @@ export default function Trace({ role, access, email, displayName, challenge, log
         <h2 id="trace-login">{t("MuTerminal veya MU TRACE hesabınızla giriş yapın")}</h2>
         {loginError && <p className={styles.error} role="alert">{t(loginError)}</p>}
         {challenge ? <form className={`${styles.form} ${styles.loginForm}`} method="post" action="/api/trace/login">
+          <label>{t("Giriş paneli seçimi")}<select name="panel" defaultValue={warehouseLogin ? 'depo' : 'trace'}>
+            <option value="trace">MU TRACE</option>
+            <option value="depo">{t("Depo paneli")}</option>
+          </select></label>
           <label>{t("Kullanıcı adı veya e-posta")}<input name="email" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={100} required /></label>
           <label>{t("Şifre")}<input name="password" type="password" autoComplete="current-password" maxLength={128} required /></label>
           <LoginChallenge key={challenge.id} initial={challenge} imageClassName={styles.challenge}
-            refreshHref={mobile ? '/trace?mobil=1' : '/trace'} />
+            refreshHref={signInHref} />
           {mobile && <input type="hidden" name="mobil" value="1" />}
           <button>{t("MU TRACE’e giriş yap")}</button>
         </form> : <p role="status">{t("Veritabanı bağlantısı kurulamadı.")}</p>}

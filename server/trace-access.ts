@@ -106,6 +106,18 @@ export async function warehousesInStores(storeIds: string[]) {
   return rows;
 }
 
+export async function warehouseSignInScope(storeId: string, warehouseId?: string): Promise<AccountScope | undefined> {
+  const { rows } = await query<{ id: string; tenant_id: string }>(`
+    SELECT w.id, s.tenant_id FROM trace_warehouses w
+    JOIN trace_stores s ON s.store_id = w.store_id
+    WHERE w.store_id = $1 AND ($2::text IS NULL OR w.id = $2)
+    LIMIT 2
+  `, [storeId, warehouseId ?? null]);
+  if (rows.length === 1) return {
+    role: 'warehouse', tenantId: rows[0].tenant_id, storeId, warehouseId: rows[0].id, control: false, review: false,
+  };
+}
+
 export async function warehouseLots(warehouseId: string) {
   const { rows } = await query<{ barcode: string; lot: string }>('SELECT barcode, lot FROM trace_warehouse_lots WHERE warehouse_id = $1', [warehouseId]);
   return new Set(rows.map(({ barcode, lot }) => JSON.stringify([barcode, lot])));

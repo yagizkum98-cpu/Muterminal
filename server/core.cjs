@@ -57,7 +57,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
   }
   const accounts = new Map([
     ['tester@muterminal.com', process.env.MUTERMINAL_TESTER_PASSWORD || (localPilotDefaults && 'tester123!'), Object.keys(panels), true],
-    [process.env.MUTERMINAL_ADMIN_EMAIL ?? 'admin@muterminal.com', process.env.MUTERMINAL_ADMIN_PASSWORD || (localPilotDefaults && defaultPilotPassword), ['admin'], process.env.MUTERMINAL_ADMIN_CAN_APPROVE !== 'false'],
+    [process.env.MUTERMINAL_ADMIN_EMAIL ?? 'admin@muterminal.com', process.env.MUTERMINAL_ADMIN_PASSWORD || (localPilotDefaults && defaultPilotPassword), Object.keys(panels), process.env.MUTERMINAL_ADMIN_CAN_APPROVE !== 'false'],
     ['yonetici@muterminal.com', process.env.MUTERMINAL_MANAGER_PASSWORD || (localPilotDefaults && defaultPilotPassword), ['manager'], false, true],
   ].filter(([, password]) => password).map(([email, password, roles, canApprove, changeable = false]) => [email.toLowerCase(), {
     email: email.toLowerCase(), password, roles, canApprove, changeable, storeId: pilotStore.id,
@@ -124,12 +124,23 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     return hashText(JSON.stringify(account)).toString('hex');
   }
 
+  function canSignInToWarehouse(account) {
+    return account?.builtIn && account.roles.includes('admin');
+  }
+
   async function getSession(request) {
     const token = sessionToken(request);
     if (!token) return;
     const stored = await findSession(token);
     if (!stored) return;
     if (stored.payload.role === 'trace') {
+      if (stored.payload.coreWarehouseId) {
+        const account = await activeAccount(stored.payload.email);
+        if (!canSignInToWarehouse(account) || stored.credential_tag !== credentialTag(account)) return;
+        const scope = await traceAccess.warehouseSignInScope(account.storeId, stored.payload.coreWarehouseId);
+        if (scope) return { ...stored.payload, scope };
+        return;
+      }
       const account = await traceAccess.activeTraceAccount(stored.payload.email);
       if (account && stored.credential_tag === traceCredentialTag(account)) {
         const { role, tenantId, storeId, warehouseId, control, review } = account;
@@ -279,7 +290,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       await ensurePilotAccounts();
       const account = await users.findOne({ _id: username, active: true, builtIn: true });
       const override = builtIn.changeable && await passwordOverrides.findOne({ _id: username });
-      return account ? { ...account, ...(override || {}), canApprove: builtIn.canApprove, hasPasswordOverride: Boolean(override) } : null;
+      return account ? { ...account, ...(override || {}), roles: builtIn.roles, canApprove: builtIn.canApprove, hasPasswordOverride: Boolean(override) } : null;
     }
     return username ? users.findOne({ _id: username, active: true, builtIn: { $in: [null, false] } }) : null;
   }
@@ -321,7 +332,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
 
   async function changeOwnPassword(request, response, session) {
     const { currentPassword, password } = await readJson(request);
-    const traceSession = session.role === 'trace';
+    const traceSession = session.role === 'trace' && !session.coreWarehouseId;
     const account = traceSession ? await traceAccess.activeTraceAccount(session.email) : await activeAccount(session.email);
     if (!await matchesPassword(account, currentPassword)) throw new RequestError(400, 'Mevcut şifre hatalı.');
     if (!localPilotDefaults && ['1234567890', 'admin123!', 'tester123!', 'depo123!'].includes(password)) {
@@ -412,14 +423,16 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     }
     const fields = new URLSearchParams(await readBody(request));
     const mobile = fields.get('mobil') === '1';
-    const mobileParam = mobile ? '&mobil=1' : '';
-    if (!await verifyChallenge(fields.get('challengeId'), fields.get('challengeAnswer'))) return redirect(response, `/trace?giris=dogrulama${mobileParam}`);
+    const warehouse = fields.get('panel') === 'depo';
+    const returnParams = `${mobile ? '&mobil=1' : ''}${warehouse ? '&panel=depo' : ''}`;
+    if (!await verifyChallenge(fields.get('challengeId'), fields.get('challengeAnswer'))) return redirect(response, `/trace?giris=dogrulama${returnParams}`);
     await seedTraceAccounts();
     const email = fields.get('email')?.trim().toLowerCase();
     const password = fields.get('password');
     const destination = mobile ? '/mobil' : '/trace';
     const traceAccount = email && await traceAccess.activeTraceAccount(email);
-    if (await matchesPassword(traceAccount, password)) {
+    const validTracePassword = await matchesPassword(traceAccount, password);
+    if (validTracePassword && (!warehouse || traceAccount.role === 'warehouse')) {
       const { email, displayName, storeId } = traceAccount;
       await signIn(request, response, destination,
         { email, displayName, role: 'trace', storeId: storeId ?? '', canApprove: false, mobile }, traceCredentialTag(traceAccount));
@@ -427,7 +440,18 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     }
     const account = await activeAccount(email);
     const role = account?.roles?.find(candidate => Object.hasOwn(panels, candidate));
-    if (!role || !await matchesPassword(account, password)) return redirect(response, `/trace?giris=bilgi${mobileParam}`);
+    if (!role || !await matchesPassword(account, password)) {
+      return redirect(response, `/trace?giris=${validTracePassword ? 'yetki' : 'bilgi'}${returnParams}`);
+    }
+    if (warehouse) {
+      if (!canSignInToWarehouse(account)) return redirect(response, `/trace?giris=yetki${returnParams}`);
+      const scope = await traceAccess.warehouseSignInScope(account.storeId);
+      if (!scope) return redirect(response, `/trace?giris=depo${returnParams}`);
+      const { email, displayName, storeId } = account;
+      await signIn(request, response, destination,
+        { email, displayName, role: 'trace', storeId, canApprove: false, mobile, coreWarehouseId: scope.warehouseId }, credentialTag(account));
+      return;
+    }
     await signIn(request, response, destination, coreSessionPayload(account, role, mobile), credentialTag(account));
   }
 
