@@ -1,7 +1,8 @@
-const { randomBytes, randomInt } = require('node:crypto');
+import { createHash, randomBytes, randomInt } from 'node:crypto';
+import { ensureSchema, query, transaction } from './database';
 
 // Five-column bitmap glyphs with distinct forms for the letters used in the code.
-const glyphs = {
+const glyphs: Record<string, number[]> = {
   A: [14, 17, 17, 31, 17, 17, 17],
   C: [14, 17, 16, 16, 16, 17, 14],
   E: [31, 16, 16, 30, 16, 16, 31],
@@ -20,12 +21,11 @@ const glyphs = {
   Z: [31, 1, 2, 4, 8, 16, 31],
 };
 const alphabet = Object.keys(glyphs);
-const challenges = new Map();
 const codeLength = 5;
 const lifetime = 5 * 60 * 1000;
 const maxChallenges = 512;
 
-function renderCode(letters) {
+function renderCode(letters: string[]) {
   const width = 160;
   const height = 48;
   const headerSize = 54;
@@ -65,28 +65,27 @@ function renderCode(letters) {
   return image;
 }
 
-function createChallenge() {
-  const now = Date.now();
-  for (const [id, challenge] of challenges) {
-    if (challenge.expires > now) break;
-    challenges.delete(id);
-  }
-  if (challenges.size >= maxChallenges) challenges.delete(challenges.keys().next().value);
+const hashCode = (answer: string) => createHash('sha256').update(answer).digest('hex');
+
+export async function createChallenge() {
   const id = randomBytes(16).toString('hex');
   const letters = Array.from({ length: codeLength }, () => alphabet[randomInt(alphabet.length)]);
-  challenges.set(id, { code: letters.join(''), image: renderCode(letters), expires: now + lifetime });
+  await ensureSchema();
+  await transaction(async client => {
+    await client.query('DELETE FROM login_challenges WHERE expires_at <= now()');
+    await client.query('DELETE FROM login_challenges WHERE id IN (SELECT id FROM login_challenges ORDER BY expires_at DESC OFFSET $1)', [maxChallenges - 1]);
+    await client.query('INSERT INTO login_challenges VALUES ($1, $2, $3, $4)', [id, hashCode(letters.join('')), renderCode(letters), new Date(Date.now() + lifetime)]);
+  });
   return id;
 }
 
-function challengeImage(id) {
-  const challenge = challenges.get(id);
-  return challenge && challenge.expires > Date.now() ? challenge.image : undefined;
+export async function challengeImage(id: string) {
+  const { rows } = await query<{ image: Buffer }>('SELECT image FROM login_challenges WHERE id = $1 AND expires_at > now()', [id]);
+  return rows[0]?.image;
 }
 
-function verifyChallenge(id, answer) {
-  const challenge = challenges.get(id);
-  challenges.delete(id);
-  return Boolean(challenge && challenge.expires > Date.now() && challenge.code === answer?.trim().toUpperCase());
+export async function verifyChallenge(id: string | null, answer: string | null) {
+  if (!id || !/^[0-9a-f]{32}$/.test(id)) return false;
+  const { rows } = await query<{ code: string }>('DELETE FROM login_challenges WHERE id = $1 AND expires_at > now() RETURNING code', [id]);
+  return Boolean(rows[0] && answer && rows[0].code === hashCode(answer.trim().toUpperCase()));
 }
-
-module.exports = { createChallenge, challengeImage, verifyChallenge };

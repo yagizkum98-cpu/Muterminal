@@ -12,12 +12,16 @@ const managementModule = 'management';
 const staffManagementModule = 'staff-management';
 const unassignedDepartment = 'unassigned';
 const roleNames = { admin: 'Admin', manager: 'Yönetici', staff: 'Personel' };
+const handoffId = new URLSearchParams(window.location.search).get('talep');
 
 let operations = {};
-let departments = {};
+let departmentGroups = [];
+let departmentCatalog = new Map();
 let panel;
 let activeStore = '';
+let handoffFocused = false;
 let managedUsers = [];
+let activeDepartmentGroup = '';
 let activeDepartment = '';
 let activeModule = decisionModule;
 let lotFilter;
@@ -40,7 +44,11 @@ function signed(number) {
 }
 
 function inDepartment(record) {
-  return (!activeStore || record.storeId === activeStore) && (!activeDepartment || (record.department ?? unassignedDepartment) === activeDepartment);
+  if (activeStore && record.storeId !== activeStore) return false;
+  if (!activeDepartmentGroup) return true;
+  if (activeDepartmentGroup === unassignedDepartment) return record.department == null;
+  if (activeDepartment) return record.department === activeDepartment;
+  return departmentCatalog.get(record.department)?.group.id === activeDepartmentGroup;
 }
 
 function storeName(id) {
@@ -48,12 +56,57 @@ function storeName(id) {
 }
 
 function departmentLabel(department) {
-  return departments[department] ?? 'Reyon atanmamış';
+  const item = departmentCatalog.get(department);
+  if (!item) return 'Reyon atanmamış';
+  return item.id === item.group.id ? item.name : `${item.group.name} · ${item.name}`;
 }
 
 function departmentOptions() {
-  return '<option value="">Reyon seçin</option>' + Object.entries(departments).map(([id, name]) => (
+  return '<option value="">Reyon seçin</option>' + departmentGroups.map(group => `
+    <optgroup label="${escapeHtml(group.name)}">
+      <option value="${escapeHtml(group.id)}">${escapeHtml(group.name)}${group.children.length ? ' (genel)' : ''}</option>
+      ${group.children.map(child => `<option value="${escapeHtml(child.id)}">${escapeHtml(child.name)}</option>`).join('')}
+    </optgroup>`).join('');
+}
+
+function defaultDepartment() {
+  return activeDepartment || (departmentCatalog.has(activeDepartmentGroup) ? activeDepartmentGroup : '');
+}
+
+function renderSubdepartments() {
+  const group = departmentGroups.find(item => item.id === activeDepartmentGroup);
+  $('subdepartment-section').hidden = !group;
+  if (!group) return;
+  $('subdepartments-title').textContent = `${group.name} alt reyonları`;
+  $('subdepartments-empty').hidden = Boolean(group.children.length);
+  $('subdepartments').hidden = !group.children.length;
+  const children = [{ id: '', name: 'Tümü' }, ...group.children];
+  $('subdepartments').innerHTML = group.children.length ? children.map(({ id, name }) => (
+    `<button type="button" data-department="${escapeHtml(id)}" aria-pressed="${id === activeDepartment}">${escapeHtml(name)}</button>`
+  )).join('') : '';
+}
+
+function configureDepartments(groups) {
+  departmentGroups = groups;
+  departmentCatalog = new Map(groups.flatMap(group => [group, ...group.children].map(item => [item.id, { ...item, group }])));
+  const filters = [{ id: '', name: 'Tüm reyonlar' }, ...groups, { id: unassignedDepartment, name: 'Reyon atanmamış' }];
+  $('departments').innerHTML = filters.map(({ id, name }) => (
+    `<button type="button" data-department-group="${escapeHtml(id)}" aria-pressed="${id === activeDepartmentGroup}">${escapeHtml(name)}</button>`
+  )).join('');
+  renderSubdepartments();
+  const field = $('department');
+  const previous = field.value;
+  field.innerHTML = departmentOptions();
+  field.value = departmentCatalog.has(previous) ? previous : defaultDepartment();
+  const parent = $('department-parent');
+  const previousParent = parent.value;
+  parent.innerHTML = '<option value="">Ana reyon seçin</option>' + groups.map(({ id, name }) => (
     `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`
+  )).join('');
+  parent.value = previousParent;
+  $('managed-departments').innerHTML = groups.map(group => (
+    `<li><strong>${escapeHtml(group.name)}</strong> · ${group.children.length
+      ? group.children.map(child => escapeHtml(child.name)).join(', ') : 'Alt reyon tanımlanmadı'}</li>`
   )).join('');
 }
 
@@ -138,7 +191,7 @@ function renderDecisionFiles() {
     </article>`;
   }).join('') || (files.size
     ? '<p>Aramanızla eşleşen karar dosyası bulunamadı.</p>'
-    : activeDepartment ? '<p>Bu reyonda henüz ürün kaydı yok.</p>'
+    : activeDepartmentGroup ? '<p>Bu reyonda henüz ürün kaydı yok.</p>'
     : '<p>Henüz ürün kaydı yok. Bir operasyon modülünden ürün eklediğinizde karar dosyası burada görünecek.</p>');
 }
 
@@ -218,10 +271,14 @@ function renderDashboard() {
   $('approval-list').innerHTML = pending.map(product => {
     const id = escapeHtml(product.id);
     const proposal = product.proposal;
-    return `<article class="approval-item">
+    const scan = proposal?.scanCheck;
+    const scanRks = { clear: 'Kontrol edildi, blokaj görülmedi', blocked: 'Blokaj görüldü', unknown: 'Doğrulanamadı' };
+    const scanPackaging = { intact: 'Sağlam', damaged: 'Hasarlı', unknown: 'Kontrol edilemedi' };
+    return `<article class="approval-item"${proposal ? ` id="talep-${escapeHtml(proposal.id)}" tabindex="-1"` : ''}>
       <h3>${escapeHtml(product.name)}</h3>
       <p>${escapeHtml(storeName(product.storeId))} · ${escapeHtml(operations[product.type].title)} · Lot ${escapeHtml(product.lot)}</p>
       ${proposal ? `<p><strong>${escapeHtml(proposal.choice)}</strong> · ${escapeHtml(proposal.actor)}</p><p>${escapeHtml(proposal.reason)}</p>` : '<p>Depo farkı onay bekliyor.</p>'}
+      ${scan ? `<p class="scan-check-summary"><strong>${panel.scanEnabled ? 'MuTerminal Scan kontrolü' : 'Kontrol sonuçları'}</strong> · RKS ${escapeHtml(scanRks[scan.rks])} · SKT ${escapeHtml(scan.expiryDate?.split('-').reverse().join('.') ?? 'Okunamadı')} · Ambalaj ${escapeHtml(scanPackaging[scan.packaging])} · ${escapeHtml(scan.quantity)} adet</p>` : ''}
       <p><button type="button" class="secondary" data-action="open-operation" data-id="${id}">Operasyon kaydına git</button></p>
       ${proposal && panel.canApprove ? `<form data-review="${id}" data-proposal="${escapeHtml(proposal.id)}">
         <label for="review-${id}">İnceleme gerekçesi</label>
@@ -230,6 +287,14 @@ function renderDashboard() {
       </form>` : ''}
     </article>`;
   }).join('') || '<p>Bekleyen talep yok.</p>';
+  if (panel.scanEnabled && !handoffFocused && handoffId && /^[a-f0-9]{24}$/.test(handoffId)) {
+    const handoff = $(`talep-${handoffId}`);
+    if (handoff) {
+      handoffFocused = true;
+      handoff.focus({ preventScroll: true });
+      handoff.scrollIntoView({ block: 'center' });
+    }
+  }
 }
 
 function configureStores() {
@@ -248,10 +313,11 @@ function configureStores() {
 async function loadManagement() {
   const response = await requestApi('/api/admin/management');
   if (!response.ok) throw new Error('Yönetim verileri yüklenemedi.');
-  const { users, stores, settings } = await response.json();
+  const { users, stores, settings, departmentGroups: groups } = await response.json();
   managedUsers = users;
   panel.stores = stores;
   configureStores();
+  configureDepartments(groups);
   $('managed-stores').innerHTML = stores.map(store => `<li>${escapeHtml(store.name)} <small>${escapeHtml(store.id)}</small></li>`).join('');
   $('managed-users').innerHTML = users.map(user => `
     <li>${user.displayName ? `${escapeHtml(user.displayName)} · ` : ''}${escapeHtml(user.email)} · ${escapeHtml(user.roles.map(role => roleNames[role]).join(', '))} · ${escapeHtml(storeName(user.storeId))}
@@ -283,6 +349,12 @@ function editManagedUser(user) {
   $('cancel-user-edit').hidden = !user;
 }
 
+function staffDepartmentOptions(selected) {
+  return '<option value="">Reyon atanmamış</option>' + Object.entries(panel.staffDepartments).map(([id, name]) => (
+    `<option value="${escapeHtml(id)}"${id === selected ? ' selected' : ''}>${escapeHtml(name)}</option>`
+  )).join('');
+}
+
 async function loadTeam() {
   const response = await requestApi('/api/manager/staff');
   if (!response.ok) throw new Error('Personel listesi yüklenemedi.');
@@ -291,6 +363,11 @@ async function loadTeam() {
     <strong>${escapeHtml(member.displayName ?? member.email)}</strong> · ${escapeHtml(member.email)}
     ${member.active ? '' : ' · Devre dışı'}
     <button type="button" class="secondary" data-member="${escapeHtml(member.email)}">Şifreyi değiştir</button>
+    <form class="department-assignment">
+      <input type="hidden" name="email" value="${escapeHtml(member.email)}">
+      <select name="staffDepartment" aria-label="${escapeHtml(member.displayName ?? member.email)} personel reyonu">${staffDepartmentOptions(member.staffDepartment)}</select>
+      <button type="submit" class="secondary">Reyonu kaydet</button>
+    </form>
   </li>`).join('') || '<li>Henüz personel hesabı yok.</li>';
 }
 
@@ -309,7 +386,7 @@ function renderEntry(product) {
   $('entry-title').textContent = product ? 'Operasyon bilgilerini tamamla' : 'Manuel ürün kaydı';
   $('department-field').hidden = Boolean(product);
   $('department').disabled = Boolean(product);
-  $('department').value = departments[activeDepartment] ? activeDepartment : '';
+  $('department').value = defaultDepartment();
   $('entry-store-field').hidden = Boolean(product) || panel.role !== 'admin';
   $('entry-store').disabled = $('entry-store-field').hidden;
   $('entry-store').value = activeStore || panel.storeId;
@@ -435,7 +512,11 @@ async function refresh() {
     const snapshot = await response.text();
     if (id !== refreshId) return;
     if (lastState !== snapshot) {
-      ({ products, logs } = JSON.parse(snapshot));
+      const state = JSON.parse(snapshot);
+      ({ products, logs } = state);
+      if (state.departmentGroups && JSON.stringify(state.departmentGroups) !== JSON.stringify(departmentGroups)) {
+        configureDepartments(state.departmentGroups);
+      }
       render();
       lastState = snapshot;
     }
@@ -444,7 +525,7 @@ async function refresh() {
     $('download-report').disabled = false;
   } catch {
     if (id !== refreshId) return;
-    showStatus('sync-status', 'Kayıtlar güncellenemedi. MuTerminal sunucusunu ve MongoDB bağlantısını kontrol edin.', true);
+    showStatus('sync-status', 'Kayıtlar güncellenemedi. MuTerminal sunucusunu ve PostgreSQL bağlantısını kontrol edin.', true);
     $('export').disabled = true;
     $('download-report').disabled = true;
   }
@@ -655,19 +736,32 @@ $('modules').addEventListener('click', event => {
   const button = event.target.closest('button[data-module]');
   if (button && (button.dataset.module !== activeModule || lotFilter)) selectModule(button.dataset.module);
 });
-$('departments').addEventListener('click', event => {
-  const button = event.target.closest('button[data-department]');
-  if (!button || button.dataset.department === activeDepartment) return;
-  activeDepartment = button.dataset.department;
-  for (const item of $('departments').querySelectorAll('button')) {
-    item.setAttribute('aria-pressed', String(item === button));
+function selectDepartmentScope(group, department = '') {
+  if (activeDepartmentGroup === group && activeDepartment === department) return;
+  const groupChanged = activeDepartmentGroup !== group;
+  activeDepartmentGroup = group;
+  activeDepartment = department;
+  for (const button of $('departments').querySelectorAll('button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.departmentGroup === group));
   }
-  if (!editingId) $('department').value = departments[activeDepartment] ? activeDepartment : '';
+  if (groupChanged) renderSubdepartments();
+  else for (const button of $('subdepartments').querySelectorAll('button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.department === department));
+  }
+  if (!editingId) $('department').value = defaultDepartment();
   currentId = null;
   $('decision').hidden = true;
   showStatus('decision-file-status', '');
   showStatus('records-status', '');
   if (lastState !== undefined) render();
+}
+$('departments').addEventListener('click', event => {
+  const button = event.target.closest('button[data-department-group]');
+  if (button) selectDepartmentScope(button.dataset.departmentGroup);
+});
+$('subdepartments').addEventListener('click', event => {
+  const button = event.target.closest('button[data-department]');
+  if (button) selectDepartmentScope(activeDepartmentGroup, button.dataset.department);
 });
 $('store-filter').addEventListener('change', event => {
   activeStore = event.target.value;
@@ -681,6 +775,7 @@ $('user-role').addEventListener('change', event => { $('user-approval').hidden =
 
 const managementForms = {
   'store-form': ['/api/admin/stores', 'Mağaza eklendi.'],
+  'department-form': ['/api/admin/departments', 'Alt reyon eklendi.'],
   'user-form': ['/api/admin/users', 'Kullanıcı oluşturuldu.'],
   'settings-form': ['/api/admin/settings', 'Ayarlar kaydedildi.'],
 };
@@ -701,6 +796,7 @@ for (const [id, [path, message]] of Object.entries(managementForms)) {
       await writeApi(editingUser ? '/api/admin/users/permissions' : path, 'POST', values);
       if (id === 'user-form') editManagedUser();
       if (id === 'store-form') form.reset();
+      if (id === 'department-form') $('subdepartment-name').value = '';
       await loadManagement();
       showStatus('management-status', editingUser ? 'Rol ve mağaza yetkileri güncellendi.' : message);
       await refresh();
@@ -741,6 +837,22 @@ $('team-members').addEventListener('click', event => {
   $('team-password-target').textContent = button.dataset.member;
   $('team-password').hidden = false;
   $('team-password-new').focus();
+});
+$('team-members').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.target;
+  const button = form.querySelector('button');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    await writeApi('/api/manager/staff/department', 'POST', Object.fromEntries(new FormData(form)));
+    await loadTeam();
+    showStatus('team-status', 'Personel reyonu kaydedildi.');
+  } catch (error) {
+    showStatus('team-status', error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 });
 $('cancel-team-password').addEventListener('click', () => {
   $('team-password').reset();
@@ -796,7 +908,8 @@ function downloadJson(data, name) {
 
 $('export').addEventListener('click', () => {
   const visible = products.filter(product => inDepartment(product) && (panel.role !== 'staff' || product.createdBy === panel.email));
-  downloadJson({ products: visible, logs: logs.filter(inDepartment) }, activeDepartment ? `muterminal-${activeDepartment}-kayitlar.json` : 'muterminal-kayitlar.json');
+  const scope = activeDepartment || activeDepartmentGroup;
+  downloadJson({ products: visible, logs: logs.filter(inDepartment) }, scope ? `muterminal-${scope}-kayitlar.json` : 'muterminal-kayitlar.json');
 });
 $('download-report').addEventListener('click', () => downloadJson(reportRows(), 'muterminal-operasyon-raporu.json'));
 
@@ -808,10 +921,12 @@ async function poll() {
 async function start() {
   try {
     const [operationResponse, departmentResponse, contextResponse] = await Promise.all([
-      requestApi('/api/operations'), requestApi('/api/departments'), requestApi('/api/context'),
+      requestApi('/api/operations'), requestApi('/api/department-groups'), requestApi('/api/context'),
     ]);
     if (!operationResponse.ok || !departmentResponse.ok || !contextResponse.ok) throw new Error();
-    [operations, departments, panel] = await Promise.all([operationResponse.json(), departmentResponse.json(), contextResponse.json()]);
+    const [operationData, groups, context] = await Promise.all([operationResponse.json(), departmentResponse.json(), contextResponse.json()]);
+    operations = operationData;
+    panel = context;
     $('panel-role').textContent = panel.title;
     const identity = panel.displayName ? `${panel.displayName} (${panel.email})` : panel.email;
     $('panel-account').textContent = `${identity} · ${panel.role === 'admin' ? 'Tüm mağazalar' : storeName(panel.storeId)}`;
@@ -826,15 +941,14 @@ async function start() {
       `<button type="button" data-module="${escapeHtml(id)}">${escapeHtml(operation.title)}</button>`
     )).join('') + `<button type="button" data-module="history">${panel.role === 'staff' ? 'Kendi İşlem Geçmişim' : 'Karar Geçmişi'}</button>`);
     if (panel.role === 'admin') $('modules').insertAdjacentHTML('beforeend', '<button type="button" data-module="management">Sistem Yönetimi</button>');
-    if (panel.role === 'manager') $('modules').insertAdjacentHTML('beforeend', '<button type="button" data-module="staff-management">Personel Yönetimi</button>');
+    if (panel.role === 'manager') {
+      $('member-department').innerHTML = staffDepartmentOptions();
+      $('modules').insertAdjacentHTML('beforeend', '<button type="button" data-module="staff-management">Personel Yönetimi</button>');
+    }
     $('history-operation').innerHTML = '<option value="">Tüm operasyonlar</option>' + options.map(([id, operation]) => (
       `<option value="${escapeHtml(id)}">${escapeHtml(operation.title)}</option>`
     )).join('');
-    const departmentFilters = [...Object.entries(departments), [unassignedDepartment, 'Reyon atanmamış']];
-    $('departments').insertAdjacentHTML('beforeend', departmentFilters.map(([id, name]) => (
-      `<button type="button" data-department="${escapeHtml(id)}" aria-pressed="false">${escapeHtml(name)}</button>`
-    )).join(''));
-    $('department').innerHTML = departmentOptions();
+    configureDepartments(groups);
     selectModule(panel.role === 'staff' ? decisionModule : dashboardModule);
     poll();
   } catch {

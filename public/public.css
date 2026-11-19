@@ -45,6 +45,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .hero { box-sizing: border-box; padding-block: clamp(3rem, 8vw, 6.5rem); }
 .hero h1 { max-width: 18ch; margin: .6rem 0 1rem; font-size: clamp(2.4rem, 6.5vw, 5rem); line-height: 1.04; letter-spacing: -.04em; }
 .hero p { max-width: 57ch; margin: 0; line-height: 1.65; color: #e5f2eb; }
+.hero .hero-journey { margin-top: 1.5rem; color: #123c2b; background: #d9f4df; }
+.hero .hero-journey:hover { background: white; }
 .eyebrow { font-size: .875rem; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
 .modules-overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 23rem), 1fr)); gap: 1rem; padding-block: 2rem; }
 .modules-overview section, .login-card { padding: clamp(1.25rem, 3vw, 2rem); border: 1px solid #dce7e0; border-radius: .8rem; background: white; }
