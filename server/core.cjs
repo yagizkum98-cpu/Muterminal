@@ -147,6 +147,23 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     response.writeHead(303, headers).end();
   }
 
+  async function signIn(request, response, destination, payload, tag) {
+    const previous = sessionToken(request);
+    if (previous) await deleteSession(previous);
+    const token = randomBytes(32).toString('base64url');
+    await createSession(token, payload.email, new Date(Date.now() + sessionSeconds * 1000), tag, payload);
+    redirect(response, destination, sessionHeader(request, token, sessionSeconds));
+  }
+
+  function coreSessionPayload(account, role, mobile) {
+    return {
+      email: account.email, displayName: account.displayName, role, storeId: account.storeId,
+      mobile,
+      canApprove: role === 'manager' || (role === 'admin' && account.canApprove),
+      canChangePassword: role === 'manager' && (!accounts.has(account.email) || account.changeable === true),
+    };
+  }
+
   function sessionHeader(request, token, maxAge) {
     const secure = request.socket.encrypted || process.env.MUTERMINAL_PUBLIC_ORIGIN?.startsWith('https://') ? '; Secure' : '';
     return `${sessionCookie}=${token}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure}`;
@@ -360,21 +377,12 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       redirect(response, loginDestination(chosenPanel, requestId, 'yetki', mobile));
       return;
     }
-    const previous = sessionToken(request);
-    if (previous) await deleteSession(previous);
-    const token = randomBytes(32).toString('base64url');
-    await createSession(token, email, new Date(Date.now() + sessionSeconds * 1000), credentialTag(account), {
-      email: account.email, displayName: account.displayName, role, storeId: account.storeId,
-      mobile,
-      canApprove: role === 'manager' || (role === 'admin' && account.canApprove),
-      canChangePassword: role === 'manager' && (!accounts.has(email) || account.changeable === true),
-    });
     let destination = mobile ? '/mobil' : `/${role}`;
     if (scanEnabled()) {
       if (role === 'staff' && !mobile) destination = '/staff/scan';
       if (role === 'manager' && isRecordId(requestId)) destination = `/manager?talep=${requestId}${mobile ? '&mobil=1' : ''}#talep-${requestId}`;
     }
-    redirect(response, destination, sessionHeader(request, token, sessionSeconds));
+    await signIn(request, response, destination, coreSessionPayload(account, role, mobile), credentialTag(account));
   }
 
   function seedTraceAccounts() {
@@ -408,14 +416,19 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     if (!await verifyChallenge(fields.get('challengeId'), fields.get('challengeAnswer'))) return redirect(response, `/trace?giris=dogrulama${mobileParam}`);
     await seedTraceAccounts();
     const email = fields.get('email')?.trim().toLowerCase();
-    const account = email && await traceAccess.activeTraceAccount(email);
-    if (!await matchesPassword(account, fields.get('password'))) return redirect(response, `/trace?giris=bilgi${mobileParam}`);
-    const previous = sessionToken(request);
-    if (previous) await deleteSession(previous);
-    const token = randomBytes(32).toString('base64url');
-    await createSession(token, account.email, new Date(Date.now() + sessionSeconds * 1000), traceCredentialTag(account),
-      { email: account.email, displayName: account.displayName, role: 'trace', storeId: account.storeId ?? '', canApprove: false, mobile });
-    redirect(response, mobile ? '/mobil' : '/trace', sessionHeader(request, token, sessionSeconds));
+    const password = fields.get('password');
+    const destination = mobile ? '/mobil' : '/trace';
+    const traceAccount = email && await traceAccess.activeTraceAccount(email);
+    if (await matchesPassword(traceAccount, password)) {
+      const { email, displayName, storeId } = traceAccount;
+      await signIn(request, response, destination,
+        { email, displayName, role: 'trace', storeId: storeId ?? '', canApprove: false, mobile }, traceCredentialTag(traceAccount));
+      return;
+    }
+    const account = await activeAccount(email);
+    const role = account?.roles?.find(candidate => Object.hasOwn(panels, candidate));
+    if (!role || !await matchesPassword(account, password)) return redirect(response, `/trace?giris=bilgi${mobileParam}`);
+    await signIn(request, response, destination, coreSessionPayload(account, role, mobile), credentialTag(account));
   }
 
   function requiredText(body, field, label, maxLength) {

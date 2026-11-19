@@ -442,23 +442,23 @@ export default function Trace({ role, access, email, displayName, challenge, log
       </div>
     </header>
     <main className={styles.wrap}>
-      {access && role === 'trace' && <ChangePassword mobile={mobile} signIn={mobile ? '/trace?mobil=1' : '/trace'} />}
+      {access && <ChangePassword mobile={mobile} signIn={mobile ? '/trace?mobil=1' : '/trace'} />}
       <div className={styles.hero}>
         <h1>{access?.role === 'super' ? t("MU TRACE platform yönetimi") : t("Ürün izlenebilirliği")}</h1>
         <p>{access ? `${t(traceRoles[access.role])} · ${displayName ?? email}` : t("Barkoddan lota, ürün hareketlerinden kontrol ve onay geçmişine.")}</p>
       </div>
       {!access ? <section className={styles.card} aria-labelledby="trace-login">
-        <h2 id="trace-login">{t("MU TRACE hesabınızla giriş yapın")}</h2>
+        <h2 id="trace-login">{t("MuTerminal veya MU TRACE hesabınızla giriş yapın")}</h2>
         {loginError && <p className={styles.error} role="alert">{t(loginError)}</p>}
         {challenge ? <form className={`${styles.form} ${styles.loginForm}`} method="post" action="/api/trace/login">
-          <label>{t("Kullanıcı adı veya e-posta")}<input name="email" type="email" autoComplete="username" maxLength={100} required /></label>
+          <label>{t("Kullanıcı adı veya e-posta")}<input name="email" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={100} required /></label>
           <label>{t("Şifre")}<input name="password" type="password" autoComplete="current-password" maxLength={128} required /></label>
           <LoginChallenge key={challenge.id} initial={challenge} imageClassName={styles.challenge}
             refreshHref={mobile ? '/trace?mobil=1' : '/trace'} />
           {mobile && <input type="hidden" name="mobil" value="1" />}
           <button>{t("MU TRACE’e giriş yap")}</button>
         </form> : <p role="status">{t("Veritabanı bağlantısı kurulamadı.")}</p>}
-        <p>{t("Mevcut MuTerminal hesabınız için panel girişi")}</p>
+        <p>{t("MuTerminal panel girişleri")}</p>
         <div className={styles.actions}>
           <a className={styles.primaryLink} href={`/?panel=staff${mobileParam}#admin-giris`}>{t("Personel girişi")}</a>
           <a className={styles.primaryLink} href={`/?panel=manager${mobileParam}#admin-giris`}>{t("Yönetici girişi")}</a>
