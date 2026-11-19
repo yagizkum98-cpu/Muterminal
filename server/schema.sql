@@ -157,6 +157,16 @@ CREATE TABLE IF NOT EXISTS trace_admin_audit (
 );
 ALTER TABLE trace_admin_audit ADD COLUMN IF NOT EXISTS platform boolean NOT NULL DEFAULT false;
 
+CREATE TABLE IF NOT EXISTS trace_mobile_staff_codes (
+  tenant_id text NOT NULL REFERENCES trace_tenants(id),
+  source text NOT NULL CHECK (source IN ('core', 'trace')),
+  email text NOT NULL,
+  store_id text NOT NULL,
+  code_hash text NOT NULL,
+  revision uuid NOT NULL,
+  PRIMARY KEY (tenant_id, source, email)
+);
+
 WITH legacy AS (
   SELECT p.id, COALESCE(p.store_id, 'pilot') AS store_id, p.barcode, p.lot, p.document->>'name' AS name,
     p.document->'proposal' AS proposal

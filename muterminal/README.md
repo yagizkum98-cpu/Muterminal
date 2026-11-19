@@ -82,3 +82,15 @@ Pilot **Depo Görevlisi** hesabı `depo@muterminal.com` adresini kullanır. İlk
 ### PostgreSQL kurulumu
 
 Mevcut `DATABASE_URL` kullanılabilir. İlk veritabanı erişiminde uygulama MU TRACE tablolarını ve indekslerini mevcut şemaya ekler. Boş bir yerel veritabanı için isteğe bağlı `compose.yaml` kullanılabilir. `.env.local` dosyasında `MUTERMINAL_POSTGRES_PASSWORD` ve aynı parolayı kullanan `DATABASE_URL` değerini ayarlayın, ardından proje kökünde `docker compose --env-file .env.local up -d postgres` komutunu çalıştırın. 5432 portu doluysa `MUTERMINAL_POSTGRES_PORT` ve bağlantı adresindeki portu birlikte değiştirin. `yarn dev` ile yerel uygulama `http://127.0.0.1:4173/trace` adresinden açılır.
+
+### MU TRACE Mobil
+
+`/mobil` telefon için kurulabilir web uygulamasının (PWA) ana ekranıdır. Aynı MuTerminal veya MU TRACE hesabı ve mevcut firma, mağaza, depo yetkileri kullanılır. Ürün tarama, kontrol, karar talepleri, onay, geri çağırma, rapor ve yönetim ekranları ortak sunucuya bağlıdır. CORE ve MuTerminal Scan bağlantıları ilgili yetki ve özellik ayarına göre görünür.
+
+Telefondan erişim ve kamera için uygulamayı bir HTTPS adresinde sunun ve `MUTERMINAL_PUBLIC_ORIGIN` değerini bu adresle eşleştirin. Android’de tarayıcıdan **Uygulamayı yükle**, iPhone’da Safari’den **Paylaş → Ana Ekrana Ekle → Web Uygulaması Olarak Aç** seçilebilir. Yerel geliştirmede `http://127.0.0.1:4173/mobil` kullanılır.
+
+Bağlantı kesildiğinde uygulama yeniden deneme ekranını gösterir. Ürün ve kişisel kayıtlar ile işlem yazma istekleri bağlantı gerektirir. Service worker yalnızca herkese açık bağlantı ekranını önbelleğe alır.
+
+Personel, kullanıcı adı ve şifresinden sonra kendisine atanmış mobil onay kodunu girer. Henüz kod atanmamışsa mobil çalışma alanı kilitli görünür. Firma admini ve mağaza yöneticisi doğrudan giriş yapabilir. **Yönetim → Personel mobil onay kodları** bölümünden kendi firma veya mağaza kapsamlarındaki CORE ve MU TRACE personeline kod oluşturabilirler.
+
+Yeni kod yalnızca oluşturulduğu anda görünür ve ilgili personele özel olarak iletilir. Kod yenilendiğinde veya mobil erişim kilitlendiğinde mevcut mobil oturumların onayı geçersiz olur.

@@ -16,6 +16,9 @@
 .shell a { color: var(--green); text-underline-offset: 3px; }
 .wrap { width: min(1232px, calc(100% - 40px)); margin: 0 auto; }
 .header { background: #fff; border-bottom: 1px solid var(--line); }
+.shell[data-mobile="true"] .header { padding-top: env(safe-area-inset-top); }
+.shell[data-mobile="true"] main { padding-bottom: calc(86px + env(safe-area-inset-bottom)); }
+.shell[data-mobile="true"] :is(input, select, textarea) { font-size: 16px; }
 .header .wrap { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding-block: 8px; }
 .header .actions { justify-content: flex-end; margin-inline-start: auto; }
 .brand { display: block; width: clamp(150px, 46vw, 255px); max-width: 100%; }
@@ -58,6 +61,7 @@
 .error, .warning, .empty, .pending { padding: 10px 12px; border-radius: 7px; }
 .error { background: #fff0ee; color: #8a261d; }
 .warning, .pending { background: #fff6df; color: #663d04; }
+.approvalCode { font-size: 1rem; font-weight: 700; user-select: all; overflow-wrap: anywhere; }
 .empty { background: white; color: var(--muted); border: 1px solid var(--line); }
 .muted { color: var(--muted); font-size: .88rem; }
 .camera { display: block; grid-column: 1 / -1; width: min(100%, 445px); max-height: 260px; background: #102e27; border-radius: 8px; }

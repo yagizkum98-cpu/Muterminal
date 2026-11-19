@@ -2,7 +2,7 @@ const { createHash, randomBytes, scrypt, timingSafeEqual } = require('node:crypt
 const { promisify } = require('node:util');
 const { operations, saleApproval, assessments } = require('../operations.cjs');
 
-function createCore(database, challenge, scanEnabled, trace, traceAccess, traceControls) {
+function createCore(database, challenge, scanEnabled, trace, traceAccess, traceControls, mobileAccess) {
   const { Table, newRecordId, createSession, findSession, deleteSession, revokeSessions } = database;
   const { challengeImage, verifyChallenge } = challenge;
   const records = new Table('products');
@@ -159,9 +159,10 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     }
   }
 
-  function loginDestination(role, requestId, error) {
+  function loginDestination(role, requestId, error, mobile = false) {
     const query = new URLSearchParams(error ? { giris: error, panel: role } : { panel: role });
     if (scanEnabled() && role === 'manager' && isRecordId(requestId)) query.set('talep', requestId);
+    if (mobile) query.set('mobil', '1');
     return `/?${query}#admin-giris`;
   }
 
@@ -185,14 +186,16 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       if (path === '/api/session/login' && (method === 'GET' || method === 'HEAD')) {
         const url = new URL(request.url, 'http://localhost');
         const role = url.searchParams.get('panel');
-        redirect(response, Object.hasOwn(panels, role) ? loginDestination(role, url.searchParams.get('talep')) : landingLogin);
+        redirect(response, Object.hasOwn(panels, role)
+          ? loginDestination(role, url.searchParams.get('talep'), undefined, url.searchParams.get('mobil') === '1') : landingLogin);
         return;
       }
       if (path === '/api/session/logout' && method === 'POST') {
         requireSameOrigin(request);
         const token = sessionToken(request);
         if (token) await deleteSession(token);
-        redirect(response, '/', sessionHeader(request, '', 0));
+        const mobile = new URL(request.url, 'http://localhost').searchParams.get('mobil') === '1';
+        redirect(response, mobile ? '/mobil' : '/', sessionHeader(request, '', 0));
         return;
       }
       const challenge = path.match(/^\/api\/session\/challenge\/([0-9a-f]{32})\.bmp$/);
@@ -205,6 +208,19 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       const session = await getSession(request);
       if (!session) throw new RequestError(401, 'MuTerminal paneline giriş yapın.');
       if (method === 'POST' || method === 'DELETE') requireSameOrigin(request);
+      if (path === '/api/trace/mobile/verify' && method === 'POST') {
+        if (request.headers['content-type']?.split(';')[0].trim() !== 'application/x-www-form-urlencoded') {
+          throw new RequestError(415, 'Mobil onay formunu kullanın.');
+        }
+        const code = new URLSearchParams(await readBody(request)).get('code') ?? '';
+        const verified = await mobileAccess.verifyMobileStaffCode(session, sessionToken(request), code);
+        return redirect(response, verified ? '/mobil' : '/mobil?onay=hata');
+      }
+      const mobile = session.mobile || request.headers['x-muterminal-mobile'] === '1' ||
+        new URL(request.url, 'http://localhost').searchParams.get('mobil') === '1';
+      if (mobile && await mobileAccess.mobileStaffState(session) !== 'allowed') {
+        throw new RequestError(403, 'Mobil personel erişimi için onay kodu gerekir.');
+      }
       await handleApi(request, response, path, session);
     } catch (error) {
       if (error instanceof RequestError || error instanceof trace.TraceError) {
@@ -290,8 +306,9 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     const role = fields.get('role') || 'admin';
     const chosenPanel = Object.hasOwn(panels, role) ? role : 'admin';
     const requestId = fields.get('talep');
+    const mobile = fields.get('mobil') === '1';
     if (!await verifyChallenge(fields.get('challengeId'), fields.get('challengeAnswer'))) {
-      redirect(response, loginDestination(chosenPanel, requestId, 'dogrulama'));
+      redirect(response, loginDestination(chosenPanel, requestId, 'dogrulama', mobile));
       return;
     }
     const email = fields.get('email')?.trim().toLowerCase();
@@ -299,11 +316,11 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     const account = await activeAccount(email);
     const validPassword = await matchesPassword(account, password);
     if (!validPassword) {
-      redirect(response, loginDestination(chosenPanel, requestId, 'bilgi'));
+      redirect(response, loginDestination(chosenPanel, requestId, 'bilgi', mobile));
       return;
     }
     if (!Object.hasOwn(panels, role) || !account.roles.includes(role)) {
-      redirect(response, loginDestination(chosenPanel, requestId, 'yetki'));
+      redirect(response, loginDestination(chosenPanel, requestId, 'yetki', mobile));
       return;
     }
     const previous = sessionToken(request);
@@ -311,13 +328,14 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     const token = randomBytes(32).toString('base64url');
     await createSession(token, email, new Date(Date.now() + sessionSeconds * 1000), credentialTag(account), {
       email: account.email, displayName: account.displayName, role, storeId: account.storeId,
+      mobile,
       canApprove: role === 'manager' || (role === 'admin' && account.canApprove),
       canChangePassword: role === 'manager' && (!accounts.has(email) || account.changeable === true),
     });
-    let destination = `/${role}`;
+    let destination = mobile ? '/mobil' : `/${role}`;
     if (scanEnabled()) {
-      if (role === 'staff') destination = '/staff/scan';
-      if (role === 'manager' && isRecordId(requestId)) destination = `/manager?talep=${requestId}#talep-${requestId}`;
+      if (role === 'staff' && !mobile) destination = '/staff/scan';
+      if (role === 'manager' && isRecordId(requestId)) destination = `/manager?talep=${requestId}${mobile ? '&mobil=1' : ''}#talep-${requestId}`;
     }
     redirect(response, destination, sessionHeader(request, token, sessionSeconds));
   }
@@ -348,17 +366,19 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       throw new RequestError(415, 'Giriş formunu kullanın.');
     }
     const fields = new URLSearchParams(await readBody(request));
-    if (!await verifyChallenge(fields.get('challengeId'), fields.get('challengeAnswer'))) return redirect(response, '/trace?giris=dogrulama');
+    const mobile = fields.get('mobil') === '1';
+    const mobileParam = mobile ? '&mobil=1' : '';
+    if (!await verifyChallenge(fields.get('challengeId'), fields.get('challengeAnswer'))) return redirect(response, `/trace?giris=dogrulama${mobileParam}`);
     await seedTraceAccounts();
     const email = fields.get('email')?.trim().toLowerCase();
     const account = email && await traceAccess.activeTraceAccount(email);
-    if (!await matchesPassword(account, fields.get('password'))) return redirect(response, '/trace?giris=bilgi');
+    if (!await matchesPassword(account, fields.get('password'))) return redirect(response, `/trace?giris=bilgi${mobileParam}`);
     const previous = sessionToken(request);
     if (previous) await deleteSession(previous);
     const token = randomBytes(32).toString('base64url');
     await createSession(token, account.email, new Date(Date.now() + sessionSeconds * 1000), traceCredentialTag(account),
-      { email: account.email, displayName: account.displayName, role: 'trace', storeId: account.storeId ?? '', canApprove: false });
-    redirect(response, '/trace', sessionHeader(request, token, sessionSeconds));
+      { email: account.email, displayName: account.displayName, role: 'trace', storeId: account.storeId ?? '', canApprove: false, mobile });
+    redirect(response, mobile ? '/mobil' : '/trace', sessionHeader(request, token, sessionSeconds));
   }
 
   function requiredText(body, field, label, maxLength) {
@@ -797,7 +817,13 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
   async function handleTrace(request, response, path, session) {
     const access = await traceAccess.resolveTraceAccess(session);
     if (path === '/api/trace/management' && request.method === 'GET') {
-      return json(response, 200, await traceAccess.traceManagement(access));
+      const [management, mobileStaff] = await Promise.all([
+        traceAccess.traceManagement(access), mobileAccess.listMobileStaff(access),
+      ]);
+      return json(response, 200, { ...management, mobileStaff });
+    }
+    if (path === '/api/trace/management/mobile' && request.method === 'POST') {
+      return json(response, 200, await mobileAccess.manageMobileCode(access, session.email, await readJson(request)));
     }
     if (request.method === 'POST' && path.startsWith('/api/trace/management/')) {
       await traceAccess.changeTraceManagement(access, session.email, path.slice('/api/trace/management/'.length), await readJson(request), passwordCredentials);

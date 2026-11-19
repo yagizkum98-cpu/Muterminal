@@ -4,6 +4,7 @@ import * as challenge from './challenge';
 import * as trace from './trace';
 import * as traceAccess from './trace-access';
 import * as traceControls from './trace-controls';
+import * as mobileAccess from './mobile-access';
 import { scanEnabled } from './features';
 
-export const { getSession, serveApi, ensurePilotAccounts } = createCore(database, challenge, scanEnabled, trace, traceAccess, traceControls);
+export const { getSession, serveApi, ensurePilotAccounts } = createCore(database, challenge, scanEnabled, trace, traceAccess, traceControls, mobileAccess);

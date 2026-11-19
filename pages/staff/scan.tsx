@@ -1,11 +1,14 @@
+import LanguagePicker, { useLanguage, useTranslate } from '../../components/LanguagePicker';
+import { languageFromCookie } from '../../lib/language';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
 import { getSession } from '../../server/application';
 import { scanEnabled } from '../../server/features';
+import { mobileStaffState } from '../../server/mobile-access';
 import styles from '../../components/StaffScan.module.css';
 
-interface Props { staff: string; initialBarcode: string; initialLot: string }
+interface Props { staff: string; initialBarcode: string; initialLot: string; mobile: boolean }
 
 interface Product {
   id: string; name: string; barcode: string; productCode: string; lot: string;
@@ -28,35 +31,44 @@ const guardedChoices = new Set([saleApproval, 'Cross-Dock Uygun']);
 const requestStatus = { pending: 'Onay bekliyor', approved: 'Onaylandı', rejected: 'Reddedildi' };
 const rksOptions = { clear: 'Kontrol edildi, blokaj görülmedi', blocked: 'Blokaj görüldü', unknown: 'Doğrulanamadı' };
 const packagingOptions = { intact: 'Sağlam', damaged: 'Hasarlı', unknown: 'Kontrol edilemedi' };
-const dateTime = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' });
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, query }) => {
   res.setHeader('Cache-Control', 'no-store');
-  if (!scanEnabled()) return { redirect: { destination: '/staff#muscan-durum', permanent: false } };
   const session = await getSession(req);
+  const mobile = query.mobil === '1' || session?.mobile === true;
+  if (session && mobile && await mobileStaffState(session) !== 'allowed') {
+    return { redirect: { destination: '/mobil', permanent: false } };
+  }
+  if (!scanEnabled()) return { redirect: { destination: mobile ? '/staff?mobil=1#muscan-durum' : '/staff#muscan-durum', permanent: false } };
   if (session?.role !== 'staff') {
-    return { redirect: { destination: session ? `/${session.role}` : '/?panel=staff#admin-giris', permanent: false } };
+    return { redirect: { destination: session ? mobile ? '/mobil' : `/${session.role}`
+      : mobile ? '/?panel=staff&mobil=1#admin-giris' : '/?panel=staff#admin-giris', permanent: false } };
   }
   return { props: {
     staff: session.displayName ?? session.email,
     initialBarcode: typeof query.code === 'string' ? query.code.slice(0, 80) : '',
     initialLot: typeof query.lot === 'string' ? query.lot.slice(0, 80) : '',
+    mobile, language: languageFromCookie(req.headers.cookie),
   } };
 };
 
-function formatDate(date: string | null) {
-  return date ? date.split('-').reverse().join('.') : 'Kayıt yok';
-}
-
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, options);
-  if (response.status === 401) window.location.assign('/?panel=staff#admin-giris');
+  if (response.status === 401) {
+    const mobile = new URLSearchParams(window.location.search).get('mobil') === '1';
+    window.location.assign(mobile ? '/?panel=staff&mobil=1#admin-giris' : '/?panel=staff#admin-giris');
+  }
   const body = await response.json();
   if (!response.ok) throw new Error(body.error ?? 'İşlem tamamlanamadı.');
   return body as T;
 }
 
-export default function StaffScan({ staff, initialBarcode, initialLot }: Props) {
+export default function StaffScan({ staff, initialBarcode, initialLot, mobile }: Props) {
+  const t = useTranslate();
+  const locale = useLanguage() === 'en' ? 'en-GB' : 'tr-TR';
+  const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' });
+  const formatDate = (date: string | null) => date
+    ? new Intl.DateTimeFormat(locale, { timeZone: 'UTC' }).format(new Date(date)) : t('Kayıt yok');
   const [step, setStep] = useState(0);
   const [barcode, setBarcode] = useState(initialBarcode);
   const [lookup, setLookup] = useState<Lookup | null>(null);
@@ -146,7 +158,7 @@ export default function StaffScan({ staff, initialBarcode, initialLot }: Props) 
         body: JSON.stringify({ productId, choice, reason, rks: check.rks, packaging: check.packaging,
           expiryDate: check.unreadable ? null : check.expiryDate, quantity: Number(check.quantity) }),
       });
-      window.location.assign(`/manager?talep=${encodeURIComponent(requestId)}#talep-${encodeURIComponent(requestId)}`);
+      window.location.assign(`/manager?talep=${encodeURIComponent(requestId)}${mobile ? '&mobil=1' : ''}#talep-${encodeURIComponent(requestId)}`);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Talep gönderilemedi.');
       setBusy(false);
@@ -160,110 +172,114 @@ export default function StaffScan({ staff, initialBarcode, initialLot }: Props) 
   }
 
   return <div className={styles.shell}>
-    <Head><title>MuTerminal Scan | Personel</title></Head>
+    <Head><title>{t("MuTerminal Scan | Personel")}</title></Head>
     <header className={styles.header}>
       <div className={styles.wrap}>
-        <div><h1>MuTerminal Scan</h1><p>{staff} · Personel paneli</p></div>
-        <nav aria-label="Personel bağlantıları">
-          <a href="/staff">Core kayıtları</a><a href={product ? `/trace?code=${encodeURIComponent(product.barcode)}&lot=${encodeURIComponent(product.lot)}` : '/trace'}>MU TRACE</a><a href="#islem-gecmisim">İşlem geçmişim</a>
-          <form method="post" action="/admin/logout"><button type="submit">Oturumu kapat</button></form>
+        <div><h1>MuTerminal Scan</h1><p>{staff}{" " + t("· Personel paneli")}</p></div>
+        <nav aria-label={t("Personel bağlantıları")}>
+          <LanguagePicker />
+          {mobile && <a href="/mobil">{t("Mobil ana ekran")}</a>}
+          <a href={mobile ? '/staff?mobil=1' : '/staff'}>{t("Core kayıtları")}</a>
+          <a href={product ? `/trace?code=${encodeURIComponent(product.barcode)}&lot=${encodeURIComponent(product.lot)}${mobile ? '&mobil=1' : ''}`
+            : mobile ? '/trace?mobil=1' : '/trace'}>MU TRACE</a><a href="#islem-gecmisim">{t("İşlem geçmişim")}</a>
+          <form method="post" action={mobile ? '/admin/logout?mobil=1' : '/admin/logout'}><button type="submit">{t("Oturumu kapat")}</button></form>
         </nav>
       </div>
     </header>
     <main className={`${styles.wrap} ${styles.main}`}>
       <section className={styles.card} aria-labelledby="scan-title">
         <div className={styles.cardHeading}>
-          <div><h2 id="scan-title">Ürün kontrolü</h2><p>Ürünü sorgulayın, lotu doğrulayın ve talebi yöneticiye gönderin.</p></div>
-          <button type="button" disabled={busy} onClick={reset}>Sıfırla</button>
+          <div><h2 id="scan-title">{t("Ürün kontrolü")}</h2><p>{t("Ürünü sorgulayın, lotu doğrulayın ve talebi yöneticiye gönderin.")}</p></div>
+          <button type="button" disabled={busy} onClick={reset}>{t("Sıfırla")}</button>
         </div>
-        <ol className={styles.steps} aria-label="Dijital işlem akışı">
-          {steps.map((label, index) => <li key={label} data-complete={index < step} aria-current={step === index ? 'step' : undefined}>{label}</li>)}
+        <ol className={styles.steps} aria-label={t("Dijital işlem akışı")}>
+          {steps.map((label, index) => <li key={label} data-complete={index < step} aria-current={step === index ? 'step' : undefined}>{t(label)}</li>)}
         </ol>
-        {error && <p className={styles.error} role="alert">{error}</p>}
+        {error && <p className={styles.error} role="alert">{t(error)}</p>}
         <div className={styles.flow} key={step}>
           {step === 0 && <form onSubmit={next}>
-            <label htmlFor="scan-barcode">Barkod veya ürün kodu</label>
+            <label htmlFor="scan-barcode">{t("Barkod veya ürün kodu")}</label>
             <div className={styles.lookup}>
               <input id="scan-barcode" name="code" value={barcode} onChange={event => setBarcode(event.target.value)} maxLength={80} autoComplete="off" placeholder="8690000000011" autoFocus required />
-              <button className={styles.primary} type="submit" disabled={busy}>{busy ? 'Sorgulanıyor…' : 'Ürünü sorgula'}</button>
+              <button className={styles.primary} type="submit" disabled={busy}>{busy ? t("Sorgulanıyor…") : t("Ürünü sorgula")}</button>
             </div>
-            <p className={styles.muted}>Barkod okuyucuyla okutun veya kodu elle girin.</p>
-            <button type="button" onClick={() => void findProduct(true)} disabled={busy}>Örnek süt senaryosunu aç</button>
+            <p className={styles.muted}>{t("Barkod okuyucuyla okutun veya kodu elle girin.")}</p>
+            <button type="button" onClick={() => void findProduct(true)} disabled={busy}>{t("Örnek süt senaryosunu aç")}</button>
           </form>}
           {step === 1 && <div>
-            <label htmlFor="scan-lot">Ürün ve lot</label>
+            <label htmlFor="scan-lot">{t("Ürün ve lot")}</label>
             <select id="scan-lot" value={productId} onChange={event => { setProductId(event.target.value); setCheck(emptyCheck); setChoice(''); setReason(''); }}>
-              <option value="">Lot seçin</option>
+              <option value="">{t("Lot seçin")}</option>
               {lookup?.products.map(option => <option value={option.id} key={option.id}>{option.name} · {option.lot}</option>)}
             </select>
             {product && <>
-              <h3>{product.name} {product.example && <small className={styles.badge}>Örnek kayıt</small>}</h3>
+              <h3>{product.name} {product.example && <small className={styles.badge}>{t("Örnek kayıt")}</small>}</h3>
               <dl className={styles.details}>
-                <div><dt>Barkod</dt><dd>{product.barcode}</dd></div><div><dt>Ürün kodu</dt><dd>{product.productCode}</dd></div>
-                <div><dt>Lot</dt><dd>{product.lot}</dd></div><div><dt>SKT</dt><dd>{formatDate(product.expiryDate)}{product.expired ? ' · Geçmiş' : ''}</dd></div>
-                <div><dt>RKS durumu</dt><dd>{product.rksBlocked ? 'Blokajlı' : 'Kontrol gerekli'}</dd></div><div><dt>Karar yetkisi</dt><dd>Yönetici onayı</dd></div>
+                <div><dt>{t("Barkod")}</dt><dd>{product.barcode}</dd></div><div><dt>{t("Ürün kodu")}</dt><dd>{product.productCode}</dd></div>
+                <div><dt>{t("Lot")}</dt><dd>{product.lot}</dd></div><div><dt>{t("SKT")}</dt><dd>{formatDate(product.expiryDate)}{product.expired && ' ' + t('· Geçmiş')}</dd></div>
+                <div><dt>{t("RKS durumu")}</dt><dd>{t(product.rksBlocked ? "Blokajlı" : 'Kontrol gerekli')}</dd></div><div><dt>{t("Karar yetkisi")}</dt><dd>{t("Yönetici onayı")}</dd></div>
               </dl>
-              {product.pending && <p className={styles.notice}>Bu lot için yönetici onayı bekleyen bir talep var.</p>}
+              {product.pending && <p className={styles.notice}>{t("Bu lot için yönetici onayı bekleyen bir talep var.")}</p>}
             </>}
-            <button className={styles.primary} type="button" disabled={!product || product.pending} onClick={continueToCheck}>Kontrole geç</button>
+            <button className={styles.primary} type="button" disabled={!product || product.pending} onClick={continueToCheck}>{t("Kontrole geç")}</button>
           </div>}
           {step === 2 && product && <form onSubmit={next}>
-            <h3>Kontrol formu</h3>
+            <h3>{t("Kontrol formu")}</h3>
             <div className={styles.fields}>
-              <div><label htmlFor="scan-expiry">Ürün üzerindeki SKT</label><input id="scan-expiry" type="date" value={check.expiryDate} disabled={check.unreadable} required={!check.unreadable} onChange={event => setCheck({ ...check, expiryDate: event.target.value })} />
-                <label className={styles.inline}><input type="checkbox" checked={check.unreadable} onChange={event => setCheck({ ...check, unreadable: event.target.checked })} /> SKT okunamadı</label>
+              <div><label htmlFor="scan-expiry">{t("Ürün üzerindeki SKT")}</label><input id="scan-expiry" type="date" value={check.expiryDate} disabled={check.unreadable} required={!check.unreadable} onChange={event => setCheck({ ...check, expiryDate: event.target.value })} />
+                <label className={styles.inline}><input type="checkbox" checked={check.unreadable} onChange={event => setCheck({ ...check, unreadable: event.target.checked })} />{" " + t("SKT okunamadı")}</label>
               </div>
-              <div><label htmlFor="scan-rks">RKS kontrolü</label><select id="scan-rks" value={check.rks} onChange={event => setCheck({ ...check, rks: event.target.value })} required>
-                <option value="">Sonuç seçin</option>{Object.entries(rksOptions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              <div><label htmlFor="scan-rks">{t("RKS kontrolü")}</label><select id="scan-rks" value={check.rks} onChange={event => setCheck({ ...check, rks: event.target.value })} required>
+                <option value="">{t("Sonuç seçin")}</option>{Object.entries(rksOptions).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
               </select></div>
-              <div><label htmlFor="scan-packaging">Ambalaj kontrolü</label><select id="scan-packaging" value={check.packaging} onChange={event => setCheck({ ...check, packaging: event.target.value })} required>
-                <option value="">Sonuç seçin</option>{Object.entries(packagingOptions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              <div><label htmlFor="scan-packaging">{t("Ambalaj kontrolü")}</label><select id="scan-packaging" value={check.packaging} onChange={event => setCheck({ ...check, packaging: event.target.value })} required>
+                <option value="">{t("Sonuç seçin")}</option>{Object.entries(packagingOptions).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
               </select></div>
-              <div><label htmlFor="scan-quantity">Sayılan miktar {product.quantity !== null ? `(kayıtlı ${product.quantity})` : ''}</label>
+              <div><label htmlFor="scan-quantity">{t("Sayılan miktar") + " "}{product.quantity !== null ? t('(kayıtlı {quantity})', { quantity: product.quantity }) : ''}</label>
                 <input id="scan-quantity" type="number" min={0} step={1} value={check.quantity} onChange={event => setCheck({ ...check, quantity: event.target.value })} required />
               </div>
             </div>
-            <button className={styles.primary} type="submit">Karar önerisine geç</button>
+            <button className={styles.primary} type="submit">{t("Karar önerisine geç")}</button>
           </form>}
           {step === 3 && <form onSubmit={next}>
-            <h3>MuDecision önerisi</h3>
-            <label htmlFor="scan-choice">Karar önerisi</label>
+            <h3>{t("MuDecision önerisi")}</h3>
+            <label htmlFor="scan-choice">{t("Karar önerisi")}</label>
             <select id="scan-choice" value={choice} onChange={event => setChoice(event.target.value)} required>
-              <option value="">Karar seçin</option>{choices.map(option => <option key={option}>{option}</option>)}
+              <option value="">{t("Karar seçin")}</option>{choices.map(option => <option key={option} value={option}>{t(option)}</option>)}
             </select>
-            {!choices.includes(saleApproval) && <p className={styles.notice}>Mevcut kayıtlar ve kontrol sonuçları satış ön onayı için uygun görünmüyor.</p>}
-            <label htmlFor="scan-reason">Karar gerekçesi</label>
+            {!choices.includes(saleApproval) && <p className={styles.notice}>{t("Mevcut kayıtlar ve kontrol sonuçları satış ön onayı için uygun görünmüyor.")}</p>}
+            <label htmlFor="scan-reason">{t("Karar gerekçesi")}</label>
             <textarea id="scan-reason" value={reason} onChange={event => setReason(event.target.value)} maxLength={1000} required />
-            <button className={styles.primary} type="submit" disabled={!reason.trim()}>Gönderimi incele</button>
+            <button className={styles.primary} type="submit" disabled={!reason.trim()}>{t("Gönderimi incele")}</button>
           </form>}
           {step === 4 && product && <form onSubmit={send}>
-            <h3>Yönetici onayına gönder</h3>
+            <h3>{t("Yönetici onayına gönder")}</h3>
             <dl className={styles.details}>
-              <div><dt>Ürün ve lot</dt><dd>{product.name} · {product.lot}</dd></div><div><dt>Öneri</dt><dd>{choice}</dd></div>
-              <div><dt>SKT ve miktar</dt><dd>{check.unreadable ? 'Okunamadı' : formatDate(check.expiryDate)} · {check.quantity} adet</dd></div>
-              <div><dt>RKS ve ambalaj</dt><dd>{rksOptions[check.rks as keyof typeof rksOptions]} · {packagingOptions[check.packaging as keyof typeof packagingOptions]}</dd></div>
-              <div className={styles.reason}><dt>Gerekçe</dt><dd>{reason}</dd></div>
+              <div><dt>{t("Ürün ve lot")}</dt><dd>{product.name} · {product.lot}</dd></div><div><dt>{t("Öneri")}</dt><dd>{t(choice)}</dd></div>
+              <div><dt>{t("SKT ve miktar")}</dt><dd>{check.unreadable ? t("Okunamadı") : formatDate(check.expiryDate)} · {check.quantity}{" " + t("adet")}</dd></div>
+              <div><dt>{t("RKS ve ambalaj")}</dt><dd>{t(rksOptions[check.rks as keyof typeof rksOptions])} · {t(packagingOptions[check.packaging as keyof typeof packagingOptions])}</dd></div>
+              <div className={styles.reason}><dt>{t("Gerekçe")}</dt><dd>{reason}</dd></div>
             </dl>
-            <button className={styles.primary} type="submit" disabled={busy}>{busy ? 'Gönderiliyor…' : 'Yöneticiye gönder'}</button>
+            <button className={styles.primary} type="submit" disabled={busy}>{busy ? t("Gönderiliyor…") : t("Yöneticiye gönder")}</button>
           </form>}
-          {step > 0 && <button type="button" className={styles.back} disabled={busy} onClick={() => { setError(''); setStep(step - 1); }}>Önceki adım</button>}
+          {step > 0 && <button type="button" className={styles.back} disabled={busy} onClick={() => { setError(''); setStep(step - 1); }}>{t("Önceki adım")}</button>}
         </div>
-        <p className={styles.safety}>Personel kararı öneridir. Satışa açma ve RKS blokajının kaldırılması yetkili sistemlerde doğrulanır.</p>
+        <p className={styles.safety}>{t("Personel kararı öneridir. Satışa açma ve RKS blokajının kaldırılması yetkili sistemlerde doğrulanır.")}</p>
       </section>
       <section className={`${styles.card} ${styles.history}`} id="islem-gecmisim" aria-labelledby="scan-history-title">
-        <h2 id="scan-history-title">İşlem geçmişim</h2>
-        {historyError && <p className={styles.error} role="status">{historyError}</p>}
+        <h2 id="scan-history-title">{t("İşlem geçmişim")}</h2>
+        {historyError && <p className={styles.error} role="status">{t(historyError)}</p>}
         {activity ? <>
-          <p className={styles.count}><strong>{activity.pending.length}</strong> yönetici onayı bekliyor</p>
+          <p className={styles.count}><strong>{activity.pending.length}</strong>{" " + t("yönetici onayı bekliyor")}</p>
           {activity.history.length ? <ul>
             {activity.history.map(item => <li key={item.requestId}>
-              <div><strong>{item.name}</strong><small>Lot {item.lot}</small></div>
-              <span data-status={item.status} className={styles.badge}>{requestStatus[item.status]}</span>
-              <p>{item.choice} · {item.reason}</p>{item.reviewReason && <p>Yönetici gerekçesi: {item.reviewReason}</p>}
+              <div><strong>{item.name}</strong><small>{t("Lot") + " "}{item.lot}</small></div>
+              <span data-status={item.status} className={styles.badge}>{t(requestStatus[item.status])}</span>
+              <p>{t(item.choice)} · {item.reason}</p>{item.reviewReason && <p>{t("Yönetici gerekçesi:") + " "}{item.reviewReason}</p>}
               <time dateTime={item.time}>{dateTime.format(new Date(item.time))}</time>
             </li>)}
-          </ul> : <p>Henüz gönderilmiş kontrol yok.</p>}
-        </> : <p>{historyError ? 'Yeniden deneniyor…' : 'Kayıtlar yükleniyor…'}</p>}
+          </ul> : <p>{t("Henüz gönderilmiş kontrol yok.")}</p>}
+        </> : <p>{t(historyError ? 'Yeniden deneniyor…' : 'Kayıtlar yükleniyor…')}</p>}
       </section>
     </main>
   </div>;

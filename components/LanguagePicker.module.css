@@ -1,0 +1,7 @@
+.picker { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid #b7c9bd; border-radius: 8px; background: white; flex: 0 0 auto; }
+.picker button, .picker button:first-child, .picker button:last-child {
+  border: 0; border-radius: 5px; cursor: pointer; min-height: 38px; min-width: 38px; padding: 4px 6px;
+  font: 750 .78rem system-ui, sans-serif; color: #075d48; background: white;
+}
+.picker button[aria-pressed="true"] { background: #075d48; color: white; }
+.picker button:focus-visible { outline: 2px solid #2784cb; outline-offset: 2px; }

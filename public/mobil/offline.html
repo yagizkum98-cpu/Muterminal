@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="tr">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bağlantı yok | MU TRACE Mobil</title>
+<style>
+  body { background: #f2f6f1; color: #172a29; font: 16px/1.5 system-ui, sans-serif; margin: 0; }
+  main { box-sizing: border-box; width: min(100% - 28px, 480px); margin: 12vh auto; padding: 24px; background: white; border: 1px solid #d5e0d7; border-radius: 16px; }
+  h1 { font-size: 1.65rem; line-height: 1.15; }
+  a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; background: #075d48; border-radius: 8px; color: white; font-weight: 700; text-decoration: none; }
+</style>
+<main>
+  <p id="app">MU TRACE Mobil</p>
+  <h1 id="heading">Bağlantı yok</h1>
+  <p id="message">Ürün kayıtlarını açmak veya işlem kaydetmek için internet bağlantınızı kontrol edin.</p>
+  <a id="retry" href="/mobil">Yeniden dene</a>
+</main>
+<script>
+  if (/(?:^|;\s*)mu_language=en(?:;|$)/.test(document.cookie)) {
+    document.documentElement.lang = 'en';
+    document.title = 'No connection | MU TRACE Mobile';
+    document.getElementById('app').textContent = 'MU TRACE Mobile';
+    document.getElementById('heading').textContent = 'No connection';
+    document.getElementById('message').textContent = 'Check your internet connection to view product records or save changes.';
+    document.getElementById('retry').textContent = 'Try again';
+  }
+</script>
+</html>

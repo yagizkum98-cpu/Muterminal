@@ -1,8 +1,10 @@
+import { useTranslate } from './LanguagePicker';
 import { useEffect, useRef, useState } from 'react';
 import type { IScannerControls } from '@zxing/browser';
 import styles from './Trace.module.css';
 
 export default function TraceCamera({ onRead, disabled }: { onRead: (value: string) => void; disabled: boolean }) {
+  const t = useTranslate();
   const video = useRef<HTMLVideoElement>(null);
   const read = useRef(onRead);
   const [open, setOpen] = useState(false);
@@ -59,9 +61,9 @@ export default function TraceCamera({ onRead, disabled }: { onRead: (value: stri
 
   return <>
     <button type="button" className={styles.secondary} disabled={disabled && !open} onClick={() => { setError(''); setOpen(!open); }}>
-      {open ? 'Kamerayı kapat' : 'Kamerayla oku'}
+      {open ? t("Kamerayı kapat") : t("Kamerayla oku")}
     </button>
-    {open && <video className={styles.camera} ref={video} muted playsInline aria-label="Barkod ve QR okuma kamerası" />}
-    {error && <p className={styles.error} role="status">{error}</p>}
+    {open && <video className={styles.camera} ref={video} muted playsInline aria-label={t("Barkod ve QR okuma kamerası")} />}
+    {error && <p className={styles.error} role="status">{t(error)}</p>}
   </>;
 }
