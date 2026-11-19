@@ -14,6 +14,8 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
   const pilotStore = { id: 'pilot', name: 'Pilot Mağaza' };
   const panels = { admin: 'MuTerminal Admin', manager: 'MuTerminal Manager', staff: 'MuTerminal Staff' };
   const defaultPilotPassword = '1234567890';
+  const localPilotDefaults = process.env.VERCEL !== '1'
+    && !process.env.MUTERMINAL_PUBLIC_ORIGIN?.startsWith('https://');
   const defaultSettings = { expiryWarningDays: 7, blockRksAcrossLots: false, productSource: 'Manuel ürün girişi', erpEndpoint: '', wmsEndpoint: '' };
   const derivePassword = promisify(scrypt);
   const kasaDepartments = {
@@ -54,10 +56,10 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     kasaDepartments[departmentOptionId('kasa-reyon', name)] = name;
   }
   const accounts = new Map([
-    ['tester@muterminal.com', process.env.MUTERMINAL_TESTER_PASSWORD ?? 'tester123!', Object.keys(panels), true],
-    [process.env.MUTERMINAL_ADMIN_EMAIL ?? 'admin@muterminal.com', process.env.MUTERMINAL_ADMIN_PASSWORD ?? defaultPilotPassword, ['admin'], process.env.MUTERMINAL_ADMIN_CAN_APPROVE !== 'false'],
-    ['yonetici@muterminal.com', defaultPilotPassword, ['manager'], false, true],
-  ].map(([email, password, roles, canApprove, changeable = false]) => [email.toLowerCase(), {
+    ['tester@muterminal.com', process.env.MUTERMINAL_TESTER_PASSWORD || (localPilotDefaults && 'tester123!'), Object.keys(panels), true],
+    [process.env.MUTERMINAL_ADMIN_EMAIL ?? 'admin@muterminal.com', process.env.MUTERMINAL_ADMIN_PASSWORD || (localPilotDefaults && defaultPilotPassword), ['admin'], process.env.MUTERMINAL_ADMIN_CAN_APPROVE !== 'false'],
+    ['yonetici@muterminal.com', process.env.MUTERMINAL_MANAGER_PASSWORD || (localPilotDefaults && defaultPilotPassword), ['manager'], false, true],
+  ].filter(([, password]) => password).map(([email, password, roles, canApprove, changeable = false]) => [email.toLowerCase(), {
     email: email.toLowerCase(), password, roles, canApprove, changeable, storeId: pilotStore.id,
   }]));
   let pilotAccountsReady;
