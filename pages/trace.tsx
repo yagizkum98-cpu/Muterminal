@@ -1,4 +1,5 @@
 import LanguagePicker, { useLanguage, useTranslate } from '../components/LanguagePicker';
+import ChangePassword from '../components/ChangePassword';
 import { languageFromCookie } from '../lib/language';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { GetServerSideProps } from 'next';
@@ -440,6 +441,7 @@ export default function Trace({ role, access, email, displayName, challengeId, l
       </div>
     </header>
     <main className={styles.wrap}>
+      {access && role === 'trace' && <ChangePassword mobile={mobile} signIn={mobile ? '/trace?mobil=1' : '/trace'} />}
       <div className={styles.hero}>
         <h1>{access?.role === 'super' ? t("MU TRACE platform yönetimi") : t("Ürün izlenebilirliği")}</h1>
         <p>{access ? `${t(traceRoles[access.role])} · ${displayName ?? email}` : t("Barkoddan lota, ürün hareketlerinden kontrol ve onay geçmişine.")}</p>

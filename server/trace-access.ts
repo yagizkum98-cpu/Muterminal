@@ -23,6 +23,14 @@ export async function activeTraceAccount(email: string) {
   return rows[0]?.document;
 }
 
+export async function changeTracePassword(email: string, previousHash: string, credentials: { passwordHash: string; salt: string }) {
+  const { rowCount } = await query(`
+    UPDATE trace_users SET document = document || $3::jsonb
+    WHERE email = $1 AND document->>'passwordHash' = $2 AND document->>'active' = 'true'
+  `, [email, previousHash, JSON.stringify(credentials)]);
+  return rowCount === 1;
+}
+
 export async function seedTraceAccount(account: TraceAccount) {
   await query('INSERT INTO trace_users VALUES ($1, $2) ON CONFLICT DO NOTHING', [account.email, JSON.stringify(account)]);
 }

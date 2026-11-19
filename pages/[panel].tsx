@@ -1,4 +1,5 @@
 import LanguagePicker, { useTranslate } from '../components/LanguagePicker';
+import ChangePassword from '../components/ChangePassword';
 import { languageFromCookie } from '../lib/language';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
@@ -44,6 +45,7 @@ export default function Panel({ title, role, showScan, mobile }: Props) {
     </form></div>
   </header>
   <main>
+    <ChangePassword mobile={mobile} signIn={`/?panel=${role}&password=changed${mobile ? '&mobil=1' : ''}#admin-giris`} />
     {mobile && <p><a className="scan-link" href="/mobil">{t("Mobil ana ekran")}</a></p>}
     <p><a className="scan-link" href={mobile ? '/trace?mobil=1' : '/trace'}>{t("MU TRACE · Ürün izlenebilirliği")}</a></p>
     {role === 'staff' && (showScan
@@ -161,14 +163,6 @@ export default function Panel({ title, role, showScan, mobile }: Props) {
         <label htmlFor="team-password-new">{t("Yeni şifre")}</label>
         <input id="team-password-new" name="password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required />
         <p><button type="submit">{t("Personel şifresini kaydet")}</button> <button type="button" id="cancel-team-password" className="secondary">{t("Vazgeç")}</button></p>
-      </form>
-      <form id="manager-password" className="management-form" hidden>
-        <h3>{t("Kendi şifremi değiştir")}</h3>
-        <div className="fields">
-          <div><label htmlFor="manager-current-password">{t("Mevcut şifre")}</label><input id="manager-current-password" name="currentPassword" type="password" maxLength={128} autoComplete="current-password" required /></div>
-          <div><label htmlFor="manager-new-password">{t("Yeni şifre")}</label><input id="manager-new-password" name="password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required /></div>
-        </div>
-        <p><button type="submit">{t("Kendi şifremi kaydet")}</button></p>
       </form>
     </section>
     <section id="module-header" className="module-header" aria-labelledby="module-title" hidden>

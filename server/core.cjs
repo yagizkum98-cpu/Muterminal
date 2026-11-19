@@ -223,6 +223,11 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       if (mobile && await mobileAccess.mobileStaffState(session) !== 'allowed') {
         throw new RequestError(403, 'Mobil personel erişimi için onay kodu gerekir.');
       }
+      if (method === 'POST' && (path === '/api/session/password' ||
+          (path === '/api/manager/password' && session.role === 'manager'))) {
+        await changeOwnPassword(request, response, session);
+        return;
+      }
       await handleApi(request, response, path, session);
     } catch (error) {
       if (error instanceof RequestError || error instanceof trace.TraceError) {
@@ -290,6 +295,31 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     const salt = randomBytes(16).toString('hex');
     const passwordHash = (await derivePassword(password, salt, 32)).toString('hex');
     return { salt, passwordHash };
+  }
+
+  async function changeOwnPassword(request, response, session) {
+    const { currentPassword, password } = await readJson(request);
+    const traceSession = session.role === 'trace';
+    const account = traceSession ? await traceAccess.activeTraceAccount(session.email) : await activeAccount(session.email);
+    if (!await matchesPassword(account, currentPassword)) throw new RequestError(400, 'Mevcut şifre hatalı.');
+    if (!localPilotDefaults && ['1234567890', 'admin123!', 'tester123!', 'depo123!'].includes(password)) {
+      throw new RequestError(400, 'Farklı bir şifre seçin.');
+    }
+    const credentials = await passwordCredentials(password);
+    let changed;
+    if (traceSession) {
+      changed = await traceAccess.changeTracePassword(session.email, account.passwordHash, credentials);
+    } else if (accounts.get(session.email)?.changeable && !account.hasPasswordOverride) {
+      await passwordOverrides.insertOne({ _id: session.email, ...credentials });
+      changed = true;
+    } else {
+      const collection = account.hasPasswordOverride ? passwordOverrides : users;
+      const filter = { _id: session.email, passwordHash: account.passwordHash };
+      if (!account.hasPasswordOverride) filter.active = true;
+      changed = (await collection.updateOne(filter, { $set: credentials })).matchedCount;
+    }
+    if (!changed) throw new RequestError(409, 'Hesap bilgisi değişti, yeniden giriş yapın.');
+    response.writeHead(204, { 'Set-Cookie': sessionHeader(request, '', 0) }).end();
   }
 
   function requiredUsername(body) {
@@ -521,23 +551,6 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       const result = await users.updateOne({ _id: email, ...staffScope }, { $set: credentials });
       if (!result.matchedCount) throw new RequestError(404, 'Bu mağazada personel hesabı bulunamadı.');
       await revokeSessions(email);
-    } else if (path === '/api/manager/password') {
-      if (!session.canChangePassword) throw new RequestError(403, 'Bu hesabın şifresi panelden değiştirilemez.');
-      const account = await activeAccount(session.email);
-      if (!await matchesPassword(account, body.currentPassword)) throw new RequestError(400, 'Mevcut şifre hatalı.');
-      const credentials = await passwordCredentials(body.password);
-      if (account.changeable && !account.hasPasswordOverride) {
-        await passwordOverrides.insertOne({ _id: session.email, ...credentials });
-      } else {
-        const collection = account.changeable ? passwordOverrides : users;
-        const filter = { _id: session.email, passwordHash: account.passwordHash };
-        if (!account.changeable) Object.assign(filter, { active: true, roles: ['manager'], storeId: session.storeId });
-        const result = await collection.updateOne(filter, { $set: credentials });
-        if (!result.matchedCount) throw new RequestError(409, 'Hesap bilgisi değişti, yeniden giriş yapın.');
-      }
-      await revokeSessions(session.email);
-      response.writeHead(204, { 'Set-Cookie': sessionHeader(request, '', 0) }).end();
-      return;
     } else throw new RequestError(404, 'Personel işlemi bulunamadı.');
     response.writeHead(204).end();
   }

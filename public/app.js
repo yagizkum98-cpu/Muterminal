@@ -465,7 +465,6 @@ function selectModule(type, product) {
     return;
   }
   if (isStaffManagement) {
-    $('manager-password').hidden = !panel.canChangePassword;
     loadTeam().catch(error => showStatus('team-status', error.message, true));
     return;
   }
@@ -883,7 +882,6 @@ $('cancel-team-password').addEventListener('click', () => {
 const teamForms = {
   'team-create': ['/api/manager/staff', 'Personel hesabı oluşturuldu.'],
   'team-password': ['/api/manager/staff/password', 'Personel şifresi değiştirildi.'],
-  'manager-password': ['/api/manager/password'],
 };
 for (const [id, [path, message]] of Object.entries(teamForms)) {
   $(id).addEventListener('submit', async event => {
@@ -895,10 +893,6 @@ for (const [id, [path, message]] of Object.entries(teamForms)) {
     try {
       await writeApi(path, 'POST', Object.fromEntries(new FormData(form)));
       form.reset();
-      if (id === 'manager-password') {
-        window.location.replace('/?panel=manager&password=changed#admin-giris');
-        return;
-      }
       if (id === 'team-password') form.hidden = true;
       await loadTeam();
       showStatus('team-status', message);

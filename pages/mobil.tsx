@@ -4,6 +4,7 @@ import Head from 'next/head';
 import { useEffect, useState } from 'react';
 import type { GetServerSideProps } from 'next';
 import MobileNav from '../components/MobileNav';
+import ChangePassword from '../components/ChangePassword';
 import styles from '../components/Mobile.module.css';
 import { traceRoles, type TraceRole } from '../components/trace-policy';
 import { getSession } from '../server/application';
@@ -100,6 +101,7 @@ export default function MobileHome({ account, approval, invalidCode }: Props) {
       </div>
     </header>
     <main className={styles.container}>
+      {account && !locked && <ChangePassword mobile signIn="/mobil" />}
       {locked ? <section className={styles.approval} aria-labelledby="mobile-approval-title">
         <h1 id="mobile-approval-title">{approval === 'unassigned' ? t("Mobil erişim kilitli") : t("Personel onay kodu")}</h1>
         <p>{account.name} · {t(traceRoles[account.role])}</p>

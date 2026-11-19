@@ -676,6 +676,7 @@
   "Bu mağazada personel hesabı bulunamadı.": "Staff account not found in this store.",
   "Bu hesabın şifresi panelden değiştirilemez.": "This account’s password cannot be changed from the panel.",
   "Mevcut şifre hatalı.": "The current password is incorrect.",
+  "Farklı bir şifre seçin.": "Choose a different password.",
   "Hesap bilgisi değişti, yeniden giriş yapın.": "Account information changed. Sign in again.",
   "Yönetim işlemi bulunamadı.": "Administration action not found.",
   "Benzersiz bir mağaza kodu girin.": "Enter a unique store code.",
