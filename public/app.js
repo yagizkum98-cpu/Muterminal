@@ -325,11 +325,15 @@ function configureStores() {
 async function loadManagement() {
   const response = await requestApi('/api/admin/management');
   if (!response.ok) throw new Error('Yönetim verileri yüklenemedi.');
-  const { users, stores, settings, departmentGroups: groups } = await response.json();
+  const { users, stores, chains, settings, departmentGroups: groups } = await response.json();
   managedUsers = users;
   panel.stores = stores;
   configureStores();
   configureDepartments(groups);
+  const chain = $('store-chain');
+  const previousChain = chain.value;
+  chain.replaceChildren(...chains.map(({ id, name }) => new Option(name, id)));
+  chain.value = chains.some(({ id }) => id === previousChain) ? previousChain : 'pilot';
   $('managed-stores').innerHTML = stores.map(store => `<li>${escapeHtml(t(store.name))} <small>${escapeHtml(store.id)}</small></li>`).join('');
   $('managed-users').innerHTML = users.map(user => `
     <li>${user.displayName ? `${escapeHtml(user.displayName)} · ` : ''}${escapeHtml(user.email)} · ${escapeHtml(user.roles.map(role => roleNames[role]).join(', '))} · ${escapeHtml(storeName(user.storeId))}
@@ -795,6 +799,7 @@ $('user-role').addEventListener('change', updateUserRoleFields);
 
 const managementForms = {
   'store-form': ['/api/admin/stores', 'Mağaza eklendi.'],
+  'chain-form': ['/api/admin/chains', 'Market zinciri eklendi.'],
   'department-form': ['/api/admin/departments', 'Alt reyon eklendi.'],
   'user-form': ['/api/admin/users', 'Kullanıcı oluşturuldu.'],
   'settings-form': ['/api/admin/settings', 'Ayarlar kaydedildi.'],
@@ -815,7 +820,7 @@ for (const [id, [path, message]] of Object.entries(managementForms)) {
     try {
       await writeApi(editingUser ? '/api/admin/users/permissions' : path, 'POST', values);
       if (id === 'user-form') editManagedUser();
-      if (id === 'store-form') form.reset();
+      if (id === 'store-form' || id === 'chain-form') form.reset();
       if (id === 'department-form') $('subdepartment-name').value = '';
       await loadManagement();
       showStatus('management-status', editingUser ? t("Hesap bilgileri güncellendi.") : message);

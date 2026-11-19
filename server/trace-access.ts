@@ -48,12 +48,36 @@ export async function traceStoreLocations(tenantId: string) {
   return rows;
 }
 
+export async function retailChains() {
+  const { rows } = await query<{ id: string; name: string }>('SELECT id, name FROM trace_tenants ORDER BY name');
+  return rows;
+}
+
+export async function createRetailChain(id: string, name: string) {
+  await query(`
+    INSERT INTO trace_tenants (id, name, expiry_warning_days)
+    SELECT $1, $2, default_warning_days FROM trace_platform_settings WHERE id
+  `, [id, name]);
+}
+
+export async function createRetailStore(id: string, tenantId: string, store: { name: string; province?: string; district?: string }) {
+  await ensureSchema();
+  await transaction(async client => {
+    const tenant = await client.query('SELECT 1 FROM trace_tenants WHERE id = $1 FOR KEY SHARE', [tenantId]);
+    if (!tenant.rowCount) throw new TraceError(400, 'Geçerli bir market zinciri seçin.');
+    await client.query('INSERT INTO stores (id, document) VALUES ($1, $2)', [id, JSON.stringify(store)]);
+    await client.query('INSERT INTO trace_stores (store_id, tenant_id) VALUES ($1, $2)', [id, tenantId]);
+  });
+}
+
 export async function resolveTraceAccess(session: { role: string; storeId: string; scope?: AccountScope; canApprove: boolean }): Promise<TraceAccess> {
   let scope = session.scope;
   if (!scope) {
     const role = session.role === 'admin' ? 'company' : session.role === 'manager' ? 'manager' : 'staff';
+    const tenant = session.storeId === 'pilot' ? null
+      : await query<{ tenant_id: string }>('SELECT tenant_id FROM trace_stores WHERE store_id = $1', [session.storeId]);
     scope = {
-      role, tenantId: 'pilot',
+      role, tenantId: tenant?.rows[0]?.tenant_id ?? 'pilot',
       storeId: role === 'company' ? null : session.storeId, warehouseId: null,
       control: false, review: role === 'company' && session.canApprove,
     };

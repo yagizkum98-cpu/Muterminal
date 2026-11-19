@@ -100,10 +100,21 @@ export default function Panel({ title, role, showScan, mobile }: Props) {
       <ul id="managed-stores"></ul>
       <form id="store-form" className="management-form">
         <div className="fields">
+          <div><label htmlFor="store-chain">{t("Market zinciri")}</label><select id="store-chain" name="tenantId" required></select></div>
           <div><label htmlFor="store-name">{t("Mağaza adı")}</label><input id="store-name" name="name" maxLength={100} required /></div>
-          <div><label htmlFor="store-code">{t("Mağaza kodu")}</label><input id="store-code" name="id" pattern="[a-z0-9\-]+" maxLength={50} required /></div>
+          <div><label htmlFor="store-code">{t("Mağaza kodu")}</label><input id="store-code" name="id" pattern="[A-Za-z0-9\-]+" maxLength={50} required /></div>
+          <div><label htmlFor="store-province">{t("İl")}</label><input id="store-province" name="province" maxLength={50} /></div>
+          <div><label htmlFor="store-district">{t("İlçe")}</label><input id="store-district" name="district" maxLength={100} /></div>
         </div>
         <p><button type="submit">{t("Mağaza ekle")}</button></p>
+      </form>
+      <h3>{t("Market zincirleri")}</h3>
+      <form id="chain-form" className="management-form">
+        <div className="fields">
+          <div><label htmlFor="chain-name">{t("Zincir adı")}</label><input id="chain-name" name="name" maxLength={100} required /></div>
+          <div><label htmlFor="chain-code">{t("Zincir kodu")}</label><input id="chain-code" name="id" pattern="[A-Za-z0-9][A-Za-z0-9\-]*" maxLength={50} required /></div>
+        </div>
+        <p><button type="submit">{t("Zincir ekle")}</button></p>
       </form>
       <h3>{t("Reyon tanımları")}</h3>
       <ul id="managed-departments" className="managed-departments"></ul>

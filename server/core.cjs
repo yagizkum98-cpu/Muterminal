@@ -560,7 +560,10 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     if (request.method === 'GET' && path === '/api/admin/management') {
       const savedUsers = await users.find({ builtIn: { $in: [null, false] } }, { projection: { passwordHash: 0, salt: 0, _id: 0 } }).sort({ email: 1 }).toArray();
       const builtIns = [...accounts.values()].map(({ email, roles, canApprove, storeId }) => ({ email, roles, canApprove, storeId, active: true, builtIn: true }));
-      json(response, 200, { users: [...builtIns, ...savedUsers], stores: await storeList(), settings: await getSettings(), departmentGroups: await departmentGroups() });
+      const [locations, chains, settings, groups] = await Promise.all([
+        storeList(), traceAccess.retailChains(), getSettings(), departmentGroups(),
+      ]);
+      json(response, 200, { users: [...builtIns, ...savedUsers], stores: locations, chains, settings, departmentGroups: groups });
       return;
     }
     if (request.method !== 'POST') throw new RequestError(404, 'Yönetim işlemi bulunamadı.');
@@ -569,7 +572,14 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       const name = requiredText(body, 'name', 'Mağaza adı', 100);
       const id = requiredText(body, 'id', 'Mağaza kodu', 50).toLowerCase();
       if (!/^[a-z0-9-]+$/.test(id) || id === pilotStore.id) throw new RequestError(400, 'Benzersiz bir mağaza kodu girin.');
-      await stores.insertOne({ _id: id, name });
+      const tenantId = body.tenantId === undefined ? 'pilot' : requiredText(body, 'tenantId', 'Market zinciri', 50);
+      const province = body.province === undefined || body.province === '' ? undefined : requiredText(body, 'province', 'İl', 50);
+      const district = body.district === undefined || body.district === '' ? undefined : requiredText(body, 'district', 'İlçe', 100);
+      await traceAccess.createRetailStore(id, tenantId, { name, province, district });
+    } else if (path === '/api/admin/chains') {
+      const id = requiredText(body, 'id', 'Zincir kodu', 50).toLowerCase();
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new RequestError(400, 'Geçerli bir zincir kodu girin.');
+      await traceAccess.createRetailChain(id, requiredText(body, 'name', 'Zincir adı', 100));
     } else if (path === '/api/admin/departments') {
       await createSubdepartment(body);
     } else if (path === '/api/admin/users') {

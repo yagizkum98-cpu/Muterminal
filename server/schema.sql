@@ -87,6 +87,10 @@ CREATE TABLE IF NOT EXISTS trace_tenants (
   expiry_warning_days integer NOT NULL DEFAULT 7 CHECK (expiry_warning_days BETWEEN 0 AND 90)
 );
 INSERT INTO trace_tenants (id, name) VALUES ('pilot', 'FİLE Market · Pilot') ON CONFLICT DO NOTHING;
+INSERT INTO trace_tenants (id, name) VALUES
+  ('migros', 'Migros'),
+  ('macrocenter', 'Macrocenter')
+ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS trace_stores (
   store_id text PRIMARY KEY,
@@ -94,6 +98,11 @@ CREATE TABLE IF NOT EXISTS trace_stores (
 );
 ALTER TABLE trace_stores ADD COLUMN IF NOT EXISTS name text;
 INSERT INTO trace_stores (store_id, tenant_id) VALUES ('pilot', 'pilot') ON CONFLICT DO NOTHING;
+INSERT INTO stores (id, document) VALUES ('f373', jsonb_build_object(
+  'name', 'F373 · FİLE Market · Fethiye / Muğla',
+  'province', 'Muğla', 'district', 'Fethiye'
+)) ON CONFLICT DO NOTHING;
+INSERT INTO trace_stores (store_id, tenant_id) VALUES ('f373', 'pilot') ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS trace_platform_settings (
   id boolean PRIMARY KEY CHECK (id),
