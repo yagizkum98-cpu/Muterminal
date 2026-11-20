@@ -5,27 +5,26 @@ import Head from 'next/head';
 import ProductJourney from '../components/ProductJourney';
 import { createChallenge, type IssuedChallenge } from '../server/challenge';
 import LoginChallenge from '../components/LoginChallenge';
-import { ensurePilotAccounts } from '../server/application';
-import { scanEnabled } from '../server/features';
 import { isPanel, loginTitles, type PanelRole } from '../server/panels';
 
 const errors: Record<string, string> = {
   dogrulama: 'Doğrulama kodu hatalı veya süresi dolmuş. Yeni görseldeki harfleri girin.',
   bilgi: 'Kullanıcı adı veya şifre hatalı.',
   yetki: 'Bu hesap seçilen panele erişemiyor.',
+  limit: 'Çok fazla giriş denemesi yapıldı. Birkaç dakika sonra tekrar deneyin.',
 };
 
 interface Props { role: PanelRole; loginTitle: string; error: string | null; passwordChanged: boolean; challenge: IssuedChallenge | null; handoff: string | null; mobile: boolean }
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ query, req, res }) => {
   const role = isPanel(query.panel) ? query.panel : 'admin';
-  const error = typeof query.giris === 'string' && Object.hasOwn(errors, query.giris) ? errors[query.giris] : null;
-  const handoff = scanEnabled() && role === 'manager' && typeof query.talep === 'string' && /^[a-f0-9]{24}$/.test(query.talep) ? query.talep : null;
+  let error = typeof query.giris === 'string' && Object.hasOwn(errors, query.giris) ? errors[query.giris] : null;
+  const handoff = role === 'manager' && typeof query.talep === 'string' && /^[a-f0-9]{24}$/.test(query.talep) ? query.talep : null;
   res.setHeader('Cache-Control', 'no-store');
   let challenge: IssuedChallenge | null = null;
   try {
-    await ensurePilotAccounts();
-    challenge = await createChallenge();
+    challenge = await createChallenge(req);
+    if (!challenge) error = errors.limit;
   }
   catch (error) { console.error('Login challenge:', error); }
   return { props: { role, loginTitle: loginTitles[role], error, passwordChanged: query.password === 'changed', challenge, handoff, mobile: query.mobil === '1', language: languageFromCookie(req.headers.cookie) } };
@@ -101,11 +100,11 @@ export default function Landing({ role, loginTitle, error, passwordChanged, chal
           <label htmlFor="email">{t("Kullanıcı adı veya e-posta")}</label>
           <input id="email" name="email" type="text" maxLength={100} autoComplete="username" autoCapitalize="none" spellCheck="false" required />
           <label htmlFor="password">{t("Şifre")}</label>
-          <input id="password" name="password" type="password" autoComplete="current-password" required />
+          <input id="password" name="password" type="password" autoComplete="current-password" maxLength={128} required />
           <LoginChallenge key={challenge.id} initial={challenge} imageClassName="login-challenge"
             refreshHref={`/admin/login?panel=${role}${mobileParam}${handoff ? `&talep=${handoff}` : ''}`} />
           <button className="button" type="submit">{t("Giriş yap")}</button>
-        </form> : <p role="status">{t("Veritabanı bağlantısı kurulamadı. Giriş için bağlantıyı kontrol edin.")}</p>}
+        </form> : error !== errors.limit && <p role="status">{t("Veritabanı bağlantısı kurulamadı. Giriş için bağlantıyı kontrol edin.")}</p>}
       </div>
     </section>
   </main>

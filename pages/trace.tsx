@@ -26,6 +26,7 @@ interface Props {
   challenge: IssuedChallenge | null;
   loginError: string | null;
   warehouseLogin: boolean;
+  canSwitchPanels: boolean;
   canScan: boolean;
   initialCode: string;
   initialLot: string;
@@ -39,18 +40,23 @@ const loginErrors: Record<string, string> = {
   dogrulama: 'Doğrulama kodu hatalı veya süresi dolmuş.',
   yetki: 'Bu hesap depo paneline erişemiyor.',
   depo: 'Bu hesap için tek bir depo tanımlanmalı.',
+  limit: 'Çok fazla giriş denemesi yapıldı. Birkaç dakika sonra tekrar deneyin.',
 };
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, query }) => {
   res.setHeader('Cache-Control', 'no-store');
-  const session = await getSession(req);
+  const session = await getSession(req, query.panel === 'depo' ? 'depo' : 'trace');
   const mobile = query.mobil === '1' || session?.mobile === true;
   if (session && mobile && await mobileStaffState(session) !== 'allowed') {
     return { redirect: { destination: '/mobil', permanent: false } };
   }
   let challenge: IssuedChallenge | null = null;
+  let loginError = typeof query.giris === 'string' && Object.hasOwn(loginErrors, query.giris) ? loginErrors[query.giris] : null;
   if (!session) {
-    try { challenge = await createChallenge(); }
+    try {
+      challenge = await createChallenge(req);
+      if (!challenge) loginError = loginErrors.limit;
+    }
     catch (error) { console.error('MU TRACE login challenge:', error); }
   }
   const access = session ? await resolveTraceAccess(session) : null;
@@ -62,9 +68,10 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, 
     email: session?.email ?? null,
     displayName: session?.displayName ?? null,
     challenge,
-    loginError: typeof query.giris === 'string' && Object.hasOwn(loginErrors, query.giris) ? loginErrors[query.giris] : null,
+    loginError,
     warehouseLogin: query.panel === 'depo',
-    canScan: session?.role === 'staff' && scanEnabled(),
+    canSwitchPanels: session?.canSwitchPanels === true,
+    canScan: (session?.role === 'staff' || session?.canSwitchPanels === true) && scanEnabled(session),
     initialCode: typeof query.code === 'string' ? query.code.slice(0, 512) : '',
     initialLot: typeof query.lot === 'string' ? query.lot.slice(0, 80) : '',
     initialStore: typeof query.store === 'string' ? query.store.slice(0, 50) : '',
@@ -84,8 +91,12 @@ const detailLabels: Record<string, string> = {
   systemStock: 'Sistem stoku', physicalStock: 'Fiziksel sayım', dockNote: 'Sevkiyat kontrol notu', destination: 'Varış noktası',
 };
 
-async function api<T>(path: string, body?: object): Promise<T> {
-  const response = await fetch(path, body && { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+async function traceApi<T>(path: string, body: object | undefined, warehouse: boolean, mobile: boolean): Promise<T> {
+  const headers = new Headers();
+  if (warehouse) headers.set('X-MuTerminal-Panel', 'depo');
+  if (mobile) headers.set('X-MuTerminal-Mobile', '1');
+  if (body) headers.set('Content-Type', 'application/json');
+  const response = await fetch(path, { headers, ...(body && { method: 'POST', body: JSON.stringify(body) }) });
   if (response.status === 204) return undefined as T;
   const data = await response.json();
   if (!response.ok) throw new Error(data.error ?? 'İşlem tamamlanamadı.');
@@ -349,7 +360,7 @@ function Reporting({ report, openLot }: { report: TraceReport | PersonalReport; 
   </div>;
 }
 
-export default function Trace({ role, access, email, displayName, challenge, loginError, warehouseLogin, canScan, initialCode, initialLot, initialStore, mobile, initialTab }: Props) {
+export default function Trace({ role, access, email, displayName, challenge, loginError, warehouseLogin, canSwitchPanels, canScan, initialCode, initialLot, initialStore, mobile, initialTab }: Props) {
   const t = useTranslate();
   const [code, setCode] = useState(initialCode);
   const [filterLot, setFilterLot] = useState(initialLot);
@@ -368,6 +379,7 @@ export default function Trace({ role, access, email, displayName, challenge, log
   const mobileParam = mobile ? '&mobil=1' : '';
   const signInHref = warehouseLogin || access?.role === 'warehouse' ? `/trace?panel=depo${mobileParam}`
     : mobile ? '/trace?mobil=1' : '/trace';
+  const api = <T,>(path: string, body?: object) => traceApi<T>(path, body, warehouseLogin, mobile);
 
   async function loadLookup(value: string, filter: string, preferredStore?: string) {
     const params = new URLSearchParams({ code: value });
@@ -440,13 +452,16 @@ export default function Trace({ role, access, email, displayName, challenge, log
     </Head>
     <header className={styles.header}>
       <div className={styles.wrap}>
-        <a className={styles.brand} href={mobile ? '/mobil' : '/trace'}>
+        <a className={styles.brand} href={mobile ? (warehouseLogin ? '/mobil?panel=depo' : '/mobil') : signInHref}>
           <img src="/mu-trace-logo.png" width="2172" height="724" alt={t("MU TRACE — Ürün İzlenebilirlik Platformu")} />
         </a>
         <div className={styles.actions}>
           <LanguagePicker />
           {mobile ? !access && <a className={styles.back} href="/mobil">{t("Ana ekran")}</a>
-            : role !== 'trace' && <a className={styles.back} href={role ? `/${role}` : '/'}>{role ? t("MuTerminal paneli") : 'MuTerminal'}</a>}
+            : (role !== 'trace' || canSwitchPanels) && <a className={styles.back} href={canSwitchPanels ? '/admin' : role ? `/${role}` : '/'}>{role ? t("MuTerminal paneli") : 'MuTerminal'}</a>}
+          {canSwitchPanels && <a className={styles.back} href={warehouseLogin ? (mobile ? '/trace?mobil=1' : '/trace') : `/trace?panel=depo${mobileParam}`}>
+            {warehouseLogin ? 'MU TRACE' : t("Depo paneli")}
+          </a>}
           {access && <form method="post" action={mobile ? '/admin/logout?mobil=1' : '/admin/logout'}><button className={styles.secondary}>{t("Oturumu kapat")}</button></form>}
         </div>
       </div>
@@ -471,7 +486,7 @@ export default function Trace({ role, access, email, displayName, challenge, log
             refreshHref={signInHref} />
           {mobile && <input type="hidden" name="mobil" value="1" />}
           <button>{t("MU TRACE’e giriş yap")}</button>
-        </form> : <p role="status">{t("Veritabanı bağlantısı kurulamadı.")}</p>}
+        </form> : loginError !== loginErrors.limit && <p role="status">{t("Veritabanı bağlantısı kurulamadı.")}</p>}
         <p>{t("MuTerminal panel girişleri")}</p>
         <div className={styles.actions}>
           <a className={styles.primaryLink} href={`/?panel=staff${mobileParam}#admin-giris`}>{t("Personel girişi")}</a>
@@ -565,6 +580,6 @@ export default function Trace({ role, access, email, displayName, challenge, log
         </>}
       </>}
     </main>
-    {mobile && access && <MobileNav current={tab} canLookup={canLookup} canManage={access.canManage} personal={access.role === 'staff'} />}
+    {mobile && access && <MobileNav current={tab} canLookup={canLookup} canManage={access.canManage} personal={access.role === 'staff'} warehouse={warehouseLogin} />}
   </div>;
 }

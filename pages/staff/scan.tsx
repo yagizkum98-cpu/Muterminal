@@ -34,15 +34,17 @@ const packagingOptions = { intact: 'Sağlam', damaged: 'Hasarlı', unknown: 'Kon
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, query }) => {
   res.setHeader('Cache-Control', 'no-store');
-  const session = await getSession(req);
+  const session = await getSession(req, 'staff');
   const mobile = query.mobil === '1' || session?.mobile === true;
   if (session && mobile && await mobileStaffState(session) !== 'allowed') {
     return { redirect: { destination: '/mobil', permanent: false } };
   }
-  if (!scanEnabled()) return { redirect: { destination: mobile ? '/staff?mobil=1#muscan-durum' : '/staff#muscan-durum', permanent: false } };
-  if (session?.role !== 'staff') {
-    return { redirect: { destination: session ? mobile ? '/mobil' : `/${session.role}`
-      : mobile ? '/?panel=staff&mobil=1#admin-giris' : '/?panel=staff#admin-giris', permanent: false } };
+  if (!session) {
+    return { redirect: { destination: mobile ? '/?panel=staff&mobil=1#admin-giris' : '/?panel=staff#admin-giris', permanent: false } };
+  }
+  if (!scanEnabled(session)) return { redirect: { destination: mobile ? '/staff?mobil=1#muscan-durum' : '/staff#muscan-durum', permanent: false } };
+  if (session.role !== 'staff') {
+    return { redirect: { destination: mobile ? '/mobil' : `/${session.role}`, permanent: false } };
   }
   return { props: {
     staff: session.displayName ?? session.email,

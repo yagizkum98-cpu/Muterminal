@@ -1,4 +1,6 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
+import { isIP } from 'node:net';
 import { ensureSchema, query, transaction } from './database';
 
 // Five-column bitmap glyphs with distinct forms for the letters used in the code.
@@ -23,7 +25,22 @@ const glyphs: Record<string, number[]> = {
 const alphabet = Object.keys(glyphs);
 const codeLength = 5;
 const lifetime = 5 * 60 * 1000;
-const maxChallenges = 512;
+
+export async function allowLoginRequest(request: IncomingMessage, action: 'issue' | 'attempt') {
+  const forwarded = process.env.VERCEL === '1' ? request.headers['x-vercel-forwarded-for'] : undefined;
+  const forwardedIp = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : '';
+  const ip = (isIP(forwardedIp) ? forwardedIp : request.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
+  const key = createHash('sha256').update(`${action}:${ip}`).digest('hex');
+  const { rowCount } = await query(`
+    INSERT INTO login_limits (key, attempts, expires_at)
+    VALUES ($1, 1, now() + interval '5 minutes')
+    ON CONFLICT (key) DO UPDATE SET
+      attempts = CASE WHEN login_limits.expires_at <= now() THEN 1 ELSE login_limits.attempts + 1 END,
+      expires_at = CASE WHEN login_limits.expires_at <= now() THEN EXCLUDED.expires_at ELSE login_limits.expires_at END
+    WHERE login_limits.expires_at <= now() OR login_limits.attempts < $2
+  `, [key, action === 'issue' ? 90 : 15]);
+  return rowCount === 1;
+}
 
 function renderCode(letters: string[]) {
   const width = 160;
@@ -69,13 +86,14 @@ const hashCode = (answer: string) => createHash('sha256').update(answer).digest(
 
 export type IssuedChallenge = { id: string; expiresIn: number };
 
-export async function createChallenge(): Promise<IssuedChallenge> {
+export async function createChallenge(request: IncomingMessage): Promise<IssuedChallenge | null> {
+  if (!await allowLoginRequest(request, 'issue')) return null;
   const id = randomBytes(16).toString('hex');
   const letters = Array.from({ length: codeLength }, () => alphabet[randomInt(alphabet.length)]);
   await ensureSchema();
   await transaction(async client => {
     await client.query('DELETE FROM login_challenges WHERE expires_at <= now()');
-    await client.query('DELETE FROM login_challenges WHERE id IN (SELECT id FROM login_challenges ORDER BY expires_at DESC OFFSET $1)', [maxChallenges - 1]);
+    await client.query('DELETE FROM login_limits WHERE expires_at <= now()');
     await client.query('INSERT INTO login_challenges VALUES ($1, $2, $3, $4)', [id, hashCode(letters.join('')), renderCode(letters), new Date(Date.now() + lifetime)]);
   });
   return { id, expiresIn: lifetime };
@@ -89,5 +107,6 @@ export async function challengeImage(id: string) {
 export async function verifyChallenge(id: string | null, answer: string | null) {
   if (!id || !/^[0-9a-f]{32}$/.test(id)) return false;
   const { rows } = await query<{ code: string }>('DELETE FROM login_challenges WHERE id = $1 AND expires_at > now() RETURNING code', [id]);
-  return Boolean(rows[0] && answer && rows[0].code === hashCode(answer.trim().toUpperCase()));
+  const normalized = answer?.trim().toUpperCase();
+  return Boolean(rows[0] && normalized && /^[A-Z]{5}$/.test(normalized) && rows[0].code === hashCode(normalized));
 }

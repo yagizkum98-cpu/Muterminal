@@ -9,14 +9,14 @@ import { scanEnabled } from '../server/features';
 import { isPanel, panelTitles, type PanelRole } from '../server/panels';
 import { mobileStaffState } from '../server/mobile-access';
 
-interface Props { title: string; role: PanelRole; showScan: boolean; mobile: boolean }
+interface Props { title: string; role: PanelRole; showScan: boolean; mobile: boolean; canSwitchPanels: boolean }
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ params, query, req, res }) => {
   const panel = params?.panel;
   if (!isPanel(panel)) return { notFound: true };
   res.setHeader('Cache-Control', 'no-store');
-  const session = await getSession(req);
-  const showScan = scanEnabled();
+  const session = await getSession(req, panel);
+  const showScan = scanEnabled(session);
   const mobile = query.mobil === '1' || session?.mobile === true;
   if (session && mobile && await mobileStaffState(session) !== 'allowed') {
     return { redirect: { destination: '/mobil', permanent: false } };
@@ -26,13 +26,13 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ params, qu
   const destination = session?.role === panel ? null : handoff ? `/?panel=manager&talep=${handoff}${mobileParam}#admin-giris`
     : !session ? `/?panel=${panel}${mobileParam}#admin-giris` : mobile ? '/mobil' : `/${session.role}`;
   if (destination) return { redirect: { destination, permanent: false } };
-  return { props: { title: panelTitles[panel], role: panel, showScan, mobile, language: languageFromCookie(req.headers.cookie) } };
+  return { props: { title: panelTitles[panel], role: panel, showScan, mobile, canSwitchPanels: session?.canSwitchPanels === true, language: languageFromCookie(req.headers.cookie) } };
 };
 
-export default function Panel({ title, role, showScan, mobile }: Props) {
+export default function Panel({ title, role, showScan, mobile, canSwitchPanels }: Props) {
   const t = useTranslate();
   return <>
-    <Head><title>{title} | MuTerminal Core</title><link rel="stylesheet" href="/panel.css" /></Head>
+    <Head><title>{`${title} | MuTerminal Core`}</title><link rel="stylesheet" href="/panel.css" /></Head>
     <Script src="/app.js" strategy="afterInteractive" />
   <header className="admin-header">
     <div>
@@ -44,16 +44,23 @@ export default function Panel({ title, role, showScan, mobile }: Props) {
       <button type="submit" className="secondary">{t("Oturumu kapat")}</button>
     </form></div>
   </header>
-  <main>
+  <main id="core-panel" data-panel={role} data-mobile={mobile ? '1' : '0'}>
     <ChangePassword mobile={mobile} signIn={`/?panel=${role}&password=changed${mobile ? '&mobil=1' : ''}#admin-giris`} />
     {mobile && <p><a className="scan-link" href="/mobil">{t("Mobil ana ekran")}</a></p>}
     <p><a className="scan-link" href={mobile ? '/trace?mobil=1' : '/trace'}>{t("MU TRACE · Ürün izlenebilirliği")}</a></p>
-    {role === 'staff' && (showScan
-      ? <p><a className="scan-link" href={mobile ? '/staff/scan?mobil=1' : '/staff/scan'}>{t("MuTerminal Scan · Barkodla kontrol")}</a></p>
-      : <aside className="scan-notice" id="muscan-durum" aria-labelledby="muscan-durum-title">
+    {canSwitchPanels && <nav className="modules" aria-label={t("Panel girişleri")}>
+      {role !== 'admin' && <a href={mobile ? '/admin?mobil=1' : '/admin'}>Admin</a>}
+      {role !== 'manager' && <a href={mobile ? '/manager?mobil=1' : '/manager'}>{t("Yönetici")}</a>}
+      {role !== 'staff' && <a href={mobile ? '/staff?mobil=1' : '/staff'}>{t("Personel")}</a>}
+      <a href={mobile ? '/trace?panel=depo&mobil=1' : '/trace?panel=depo'}>{t("Depo paneli")}</a>
+    </nav>}
+    {showScan && (role === 'staff' || canSwitchPanels) && <p>
+      <a className="scan-link" href={mobile ? '/staff/scan?mobil=1' : '/staff/scan'}>{t("MuTerminal Scan · Barkodla kontrol")}</a>
+    </p>}
+    {role === 'staff' && !showScan && <aside className="scan-notice" id="muscan-durum" aria-labelledby="muscan-durum-title">
         <h2 id="muscan-durum-title">{t("MuScan geliştirilmekte")}</h2>
         <p>{t("Gerekli prosedürler tamamlandıktan sonra kullanıma açılacak.")}</p>
-      </aside>)}
+      </aside>}
     <nav id="modules" className="modules" aria-label={t("MuTerminal modülleri")}>
       <button type="button" className="decision-module-tab" data-module="mudecision" aria-pressed="true">
         <img src="/mudecision-logo.png" width="2172" height="724" alt="MuDecision" />
@@ -162,9 +169,9 @@ export default function Panel({ title, role, showScan, mobile }: Props) {
           <div><label htmlFor="member-name">{t("Ad soyad")}</label><input id="member-name" name="displayName" maxLength={100} required /></div>
           <div><label htmlFor="member-username">{t("Kullanıcı adı veya e-posta")}</label><input id="member-username" name="email" maxLength={100} required /></div>
           <div><label htmlFor="member-department">{t("İş unvanı")}</label><select id="member-department" name="staffDepartment" required><option value="">{t("İş unvanı seçin")}</option></select></div>
-          <div><label htmlFor="member-password">{t("Başlangıç şifresi")}</label><input id="member-password" name="password" type="password" minLength={8} maxLength={128} autoComplete="new-password" aria-describedby="member-password-note" /></div>
+          <div><label htmlFor="member-password">{t("Başlangıç şifresi")}</label><input id="member-password" name="password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required /></div>
+          {role === 'admin' && <div><label htmlFor="member-store">{t("Mağaza")}</label><select id="member-store" name="storeId" required /></div>}
         </div>
-        <p id="member-password-note">{t("Şifreyi boş bırakırsanız başlangıç şifresi 1234567890 olur.")}</p>
         <p><button type="submit">{t("Personel ekle")}</button></p>
       </form>
       <form id="team-password" className="management-form" hidden>

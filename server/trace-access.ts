@@ -31,8 +31,19 @@ export async function changeTracePassword(email: string, previousHash: string, c
   return rowCount === 1;
 }
 
-export async function seedTraceAccount(account: TraceAccount) {
-  await query('INSERT INTO trace_users VALUES ($1, $2) ON CONFLICT DO NOTHING', [account.email, JSON.stringify(account)]);
+export async function seedTraceAccount(account: TraceAccount, passwordRevision?: string) {
+  if (!passwordRevision) {
+    await query('INSERT INTO trace_users VALUES ($1, $2) ON CONFLICT DO NOTHING', [account.email, JSON.stringify(account)]);
+    return;
+  }
+  const { passwordHash, salt } = account;
+  await query(`
+    INSERT INTO trace_users (email, document) VALUES ($1, $2)
+    ON CONFLICT (email) DO UPDATE SET document = trace_users.document || $3::jsonb
+    WHERE trace_users.document->>'role' = $5
+      AND trace_users.document->>'tenantId' = 'pilot'
+      AND trace_users.document->>'passwordRevision' IS DISTINCT FROM $4
+  `, [account.email, JSON.stringify({ ...account, passwordRevision }), JSON.stringify({ passwordHash, salt, passwordRevision }), passwordRevision, account.role]);
 }
 
 export async function traceStoreLocations(tenantId: string) {

@@ -24,13 +24,14 @@ interface Props {
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, query }) => {
   res.setHeader('Cache-Control', 'no-store');
-  const session = await getSession(req);
+  const session = await getSession(req, query.panel === 'depo' ? 'depo' : 'trace');
   const language = languageFromCookie(req.headers.cookie);
   if (!session) return { props: { account: null, approval: 'allowed', invalidCode: false, language } };
   const [access, approval] = await Promise.all([resolveTraceAccess(session), mobileStaffState(session)]);
   return { props: { account: {
     role: access.role, name: session.displayName ?? session.email, canManage: access.canManage,
-    corePath: session.role === 'trace' ? null : `/${session.role}?mobil=1`, canScan: session.role === 'staff' && scanEnabled(),
+    corePath: session.canSwitchPanels ? '/admin?mobil=1' : session.role === 'trace' ? null : `/${session.role}?mobil=1`,
+    canScan: (session.role === 'staff' || session.canSwitchPanels === true) && scanEnabled(session),
   }, approval, invalidCode: query.onay === 'hata', language } };
 };
 
@@ -43,6 +44,8 @@ export default function MobileHome({ account, approval, invalidCode }: Props) {
   const [secure, setSecure] = useState(true);
   const [installError, setInstallError] = useState('');
   const canLookup = Boolean(account && account.role !== 'super');
+  const warehouse = account?.role === 'warehouse';
+  const traceHref = warehouse ? '/trace?mobil=1&panel=depo' : '/trace?mobil=1';
   const personal = account?.role === 'staff';
   const locked = account && approval !== 'allowed';
 
@@ -114,13 +117,13 @@ export default function MobileHome({ account, approval, invalidCode }: Props) {
       </section> : <section className={styles.hero}>
         <h1>{t("MU TRACE Mobil")}</h1>
         <p>{account ? `${account.name} · ${t(traceRoles[account.role])}` : t("Barkod okutun, lotu inceleyin ve saha kontrollerinizi kaydedin.")}</p>
-        <a className={styles.primary} href={account?.role === 'super' ? '/trace?mobil=1&bolum=yonetim' : '/trace?mobil=1'}>
+        <a className={styles.primary} href={account?.role === 'super' ? `${traceHref}&bolum=yonetim` : traceHref}>
           {canLookup ? t("Barkod veya QR tara") : account ? t("Firma yönetimini aç") : t("Giriş yap")}
         </a>
       </section>}
       {offline && <p className={styles.notice} role="status">{t("Bağlantı kesildi. Ürün kayıtları ve işlemler için internet bağlantısı gerekiyor.")}</p>}
       {account && !locked && <div className={styles.tiles}>
-        {canLookup && <a href="/trace?mobil=1&bolum=rapor"><strong>{personal ? t("Kontrollerim") : t("Raporlar")}</strong>
+        {canLookup && <a href={`${traceHref}&bolum=rapor`}><strong>{personal ? t("Kontrollerim") : t("Raporlar")}</strong>
           <span>{personal ? t("Kendi taleplerinizi ve sonuçlarını görün.") : t("Riskli lotları, talepleri ve geri çağırma kayıtlarını inceleyin.")}</span></a>}
         {account.canManage && account.role !== 'super' && <a href="/trace?mobil=1&bolum=yonetim"><strong>{t("Yönetim")}</strong>
           <span>{t("Kullanıcı ve lokasyon kapsamlarını yönetin.")}</span></a>}
@@ -138,6 +141,6 @@ export default function MobileHome({ account, approval, invalidCode }: Props) {
         {installError && <p role="status">{t(installError)}</p>}
       </details>}
     </main>
-    {account && !locked && <MobileNav current="home" canLookup={canLookup} canManage={account.canManage} personal={personal} />}
+    {account && !locked && <MobileNav current="home" canLookup={canLookup} canManage={account.canManage} personal={personal} warehouse={warehouse} />}
   </div>;
 }

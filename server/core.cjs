@@ -2,9 +2,9 @@ const { createHash, randomBytes, scrypt, timingSafeEqual } = require('node:crypt
 const { promisify } = require('node:util');
 const { operations, saleApproval, assessments } = require('../operations.cjs');
 
-function createCore(database, challenge, scanEnabled, trace, traceAccess, traceControls, mobileAccess) {
-  const { Table, newRecordId, createSession, findSession, deleteSession, revokeSessions } = database;
-  const { createChallenge, challengeImage, verifyChallenge } = challenge;
+function createCore(database, challenge, { scanEnabled, testerEmail }, trace, traceAccess, traceControls, mobileAccess) {
+  const { Table, newRecordId, createSession, findSession, deleteSession, revokeSessions, ensureSchema, transaction } = database;
+  const { createChallenge, challengeImage, verifyChallenge, allowLoginRequest } = challenge;
   const records = new Table('products');
   const users = new Table('accounts');
   const passwordOverrides = new Table('account_password_overrides');
@@ -14,6 +14,9 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
   const pilotStore = { id: 'pilot', name: 'Pilot Mağaza' };
   const panels = { admin: 'MuTerminal Admin', manager: 'MuTerminal Manager', staff: 'MuTerminal Staff' };
   const defaultPilotPassword = '1234567890';
+  const pilotPasswordRevision = process.env.MUTERMINAL_PILOT_PASSWORD_REVISION?.trim();
+  const warehouseEmail = 'depo@muterminal.com';
+  const auditorEmail = 'denetci@muterminal.com';
   const localPilotDefaults = process.env.VERCEL !== '1'
     && !process.env.MUTERMINAL_PUBLIC_ORIGIN?.startsWith('https://');
   const defaultSettings = { expiryWarningDays: 7, blockRksAcrossLots: false, productSource: 'Manuel ürün girişi', erpEndpoint: '', wmsEndpoint: '' };
@@ -56,11 +59,12 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     kasaDepartments[departmentOptionId('kasa-reyon', name)] = name;
   }
   const accounts = new Map([
-    ['tester@muterminal.com', process.env.MUTERMINAL_TESTER_PASSWORD || (localPilotDefaults && 'tester123!'), Object.keys(panels), true],
-    [process.env.MUTERMINAL_ADMIN_EMAIL ?? 'admin@muterminal.com', process.env.MUTERMINAL_ADMIN_PASSWORD || (localPilotDefaults && defaultPilotPassword), Object.keys(panels), process.env.MUTERMINAL_ADMIN_CAN_APPROVE !== 'false'],
-    ['yonetici@muterminal.com', process.env.MUTERMINAL_MANAGER_PASSWORD || (localPilotDefaults && defaultPilotPassword), ['manager'], false, true],
-  ].filter(([, password]) => password).map(([email, password, roles, canApprove, changeable = false]) => [email.toLowerCase(), {
-    email: email.toLowerCase(), password, roles, canApprove, changeable, storeId: pilotStore.id,
+    [testerEmail, process.env.MUTERMINAL_TESTER_PASSWORD, 'tester123!', Object.keys(panels), true],
+    [process.env.MUTERMINAL_ADMIN_EMAIL ?? 'admin@muterminal.com', process.env.MUTERMINAL_ADMIN_PASSWORD, defaultPilotPassword, Object.keys(panels), process.env.MUTERMINAL_ADMIN_CAN_APPROVE !== 'false'],
+    ['yonetici@muterminal.com', process.env.MUTERMINAL_MANAGER_PASSWORD, defaultPilotPassword, ['manager'], false, true],
+  ].filter(([, password]) => password || localPilotDefaults).map(([email, configuredPassword, fallback, roles, canApprove, changeable = false]) => [email.trim().toLowerCase(), {
+    email: email.trim().toLowerCase(), password: configuredPassword || fallback, roles, canApprove, changeable, storeId: pilotStore.id,
+    passwordRevision: configuredPassword ? pilotPasswordRevision : undefined,
   }]));
   let pilotAccountsReady;
   let traceAccountsReady;
@@ -128,7 +132,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     return account?.builtIn && account.roles.includes('admin');
   }
 
-  async function getSession(request) {
+  async function getSession(request, panel) {
     const token = sessionToken(request);
     if (!token) return;
     const stored = await findSession(token);
@@ -137,10 +141,9 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       if (stored.payload.coreWarehouseId) {
         const account = await activeAccount(stored.payload.email);
         if (!canSignInToWarehouse(account) || stored.credential_tag !== credentialTag(account)) return;
-        const scope = await traceAccess.warehouseSignInScope(account.storeId, stored.payload.coreWarehouseId);
-        if (scope) return { ...stored.payload, scope };
-        return;
+        return pilotPanelSession(account, stored.payload, panel);
       }
+      if ([warehouseEmail, auditorEmail].includes(stored.payload.email)) await seedTraceAccounts();
       const account = await traceAccess.activeTraceAccount(stored.payload.email);
       if (account && stored.credential_tag === traceCredentialTag(account)) {
         const { role, tenantId, storeId, warehouseId, control, review } = account;
@@ -149,7 +152,25 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       return;
     }
     const account = await activeAccount(stored.payload.email);
-    if (account && stored.credential_tag === credentialTag(account)) return stored.payload;
+    if (account && stored.credential_tag === credentialTag(account)) {
+      return canSignInToWarehouse(account) ? pilotPanelSession(account, stored.payload, panel) : stored.payload;
+    }
+  }
+
+  async function pilotPanelSession(account, payload, panel) {
+    if (panel === 'depo' || (!panel && payload.coreWarehouseId)) {
+      const scope = await traceAccess.warehouseSignInScope(account.storeId, payload.coreWarehouseId ?? 'pilot-depo');
+      if (!scope) return;
+      return {
+        ...payload, role: 'trace', scope, coreWarehouseId: scope.warehouseId, canApprove: false,
+        canSwitchPanels: true,
+      };
+    }
+    const role = panel === 'trace' || payload.coreWarehouseId ? 'admin' : payload.role;
+    return {
+      ...payload, ...coreSessionPayload(account, Object.hasOwn(panels, panel) ? panel : role, payload.mobile),
+      canSwitchPanels: true,
+    };
   }
 
   function redirect(response, path, cookie) {
@@ -191,7 +212,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
 
   function loginDestination(role, requestId, error, mobile = false) {
     const query = new URLSearchParams(error ? { giris: error, panel: role } : { panel: role });
-    if (scanEnabled() && role === 'manager' && isRecordId(requestId)) query.set('talep', requestId);
+    if (role === 'manager' && isRecordId(requestId)) query.set('talep', requestId);
     if (mobile) query.set('mobil', '1');
     return `/?${query}#admin-giris`;
   }
@@ -230,7 +251,9 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       }
       if (path === '/api/session/challenge' && method === 'POST') {
         requireSameOrigin(request);
-        json(response, 200, await createChallenge());
+        const issued = await createChallenge(request);
+        if (!issued) throw new RequestError(429, 'Çok fazla doğrulama isteği gönderildi. Biraz bekleyip tekrar deneyin.');
+        json(response, 200, issued);
         return;
       }
       const challenge = path.match(/^\/api\/session\/challenge\/([0-9a-f]{32})\.bmp$/);
@@ -240,7 +263,12 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
         sendContent(response, 'image/bmp', image);
         return;
       }
-      const session = await getSession(request);
+      const tracePath = path === '/api/trace' || path.startsWith('/api/trace/');
+      const scanPath = path === '/api/scan' || path.startsWith('/api/scan/');
+      const panel = request.headers['x-muterminal-panel'];
+      const corePanel = typeof panel === 'string' && Object.hasOwn(panels, panel) ? panel : undefined;
+      const session = await getSession(request, tracePath ? panel === 'depo' ? 'depo' : 'trace'
+        : scanPath ? 'staff' : corePanel);
       if (!session) throw new RequestError(401, 'MuTerminal paneline giriş yapın.');
       if (method === 'POST' || method === 'DELETE') requireSameOrigin(request);
       if (path === '/api/trace/mobile/verify' && method === 'POST') {
@@ -285,6 +313,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
   }
 
   async function activeAccount(username) {
+    if (username === auditorEmail) return null;
     const builtIn = accounts.get(username);
     if (builtIn) {
       await ensurePilotAccounts();
@@ -297,12 +326,29 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
 
   function ensurePilotAccounts() {
     pilotAccountsReady ??= (async () => {
-      for (const { password, ...account } of accounts.values()) {
+      for (const { password, passwordRevision, ...account } of accounts.values()) {
         const saved = await users.findOne({ _id: account.email });
-        if (saved?.builtIn) continue;
-        if (saved) throw new Error('The existing account conflicts with a reserved pilot username.');
+        if (saved && !saved.builtIn) throw new Error('The existing account conflicts with a reserved pilot username.');
+        if (saved?.builtIn && (!passwordRevision || saved.passwordRevision === passwordRevision)) continue;
+        const credentials = await passwordCredentials(password);
+        if (passwordRevision) {
+          await ensureSchema();
+          await transaction(async client => {
+            const result = await client.query(`
+              INSERT INTO accounts (id, document) VALUES ($1, $2)
+              ON CONFLICT (id) DO UPDATE SET document = accounts.document || $3::jsonb
+              WHERE accounts.document->>'builtIn' = 'true'
+                AND accounts.document->>'passwordRevision' IS DISTINCT FROM $4
+            `, [account.email, JSON.stringify({ ...account, ...credentials, passwordRevision, active: true, builtIn: true }),
+              JSON.stringify({ ...credentials, passwordRevision }), passwordRevision]);
+            if (result.rowCount) {
+              await client.query('DELETE FROM account_password_overrides WHERE id = $1', [account.email]);
+            }
+          });
+          continue;
+        }
         try {
-          await users.insertOne({ _id: account.email, ...account, ...await passwordCredentials(password), active: true, builtIn: true });
+          await users.insertOne({ _id: account.email, ...account, ...credentials, active: true, builtIn: true });
         } catch (error) {
           if (error.code !== '23505' || !(await users.findOne({ _id: account.email, builtIn: true }))) throw error;
         }
@@ -318,7 +364,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     if (!account || typeof password !== 'string' || password.length > 128) return false;
     const expected = Buffer.from(account.passwordHash, account.salt ? 'hex' : undefined);
     const actual = account.salt ? await derivePassword(password, account.salt, 32) : hashText(password);
-    return timingSafeEqual(actual, expected);
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
   }
 
   async function passwordCredentials(password) {
@@ -372,6 +418,9 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     const chosenPanel = Object.hasOwn(panels, role) ? role : 'admin';
     const requestId = fields.get('talep');
     const mobile = fields.get('mobil') === '1';
+    if (!await allowLoginRequest(request, 'attempt')) {
+      return redirect(response, loginDestination(chosenPanel, requestId, 'limit', mobile));
+    }
     if (!await verifyChallenge(fields.get('challengeId'), fields.get('challengeAnswer'))) {
       redirect(response, loginDestination(chosenPanel, requestId, 'dogrulama', mobile));
       return;
@@ -389,7 +438,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       return;
     }
     let destination = mobile ? '/mobil' : `/${role}`;
-    if (scanEnabled()) {
+    if (scanEnabled({ email: account.email, canSwitchPanels: canSignInToWarehouse(account) })) {
       if (role === 'staff' && !mobile) destination = '/staff/scan';
       if (role === 'manager' && isRecordId(requestId)) destination = `/manager?talep=${requestId}${mobile ? '&mobil=1' : ''}#talep-${requestId}`;
     }
@@ -399,16 +448,22 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
   function seedTraceAccounts() {
     traceAccountsReady ??= (async () => {
       const warehousePassword = process.env.MUTERMINAL_TRACE_PILOT_WAREHOUSE_PASSWORD;
+      const auditorPassword = process.env.MUTERMINAL_TRACE_PILOT_AUDITOR_PASSWORD;
       const superPassword = process.env.MUTERMINAL_TRACE_SUPER_PASSWORD;
       const superEmail = process.env.MUTERMINAL_TRACE_SUPER_EMAIL?.trim().toLowerCase();
       const seeds = [
-        [warehousePassword, { email: 'depo@muterminal.com', displayName: 'Depo Görevlisi', role: 'warehouse',
-          tenantId: 'pilot', storeId: 'pilot', warehouseId: 'pilot-depo' }],
+        [warehousePassword, { email: warehouseEmail, displayName: 'Depo Görevlisi', role: 'warehouse',
+          tenantId: 'pilot', storeId: 'pilot', warehouseId: 'pilot-depo' }, pilotPasswordRevision],
+        [auditorPassword, { email: auditorEmail, displayName: 'Denetçi', role: 'auditor',
+          tenantId: 'pilot', storeId: null, warehouseId: null }, pilotPasswordRevision],
         [superEmail && superPassword, { email: superEmail, displayName: 'MuTerminal Süper Admin', role: 'super',
           tenantId: null, storeId: null, warehouseId: null }],
       ];
-      for (const [password, account] of seeds) {
-        if (password) await traceAccess.seedTraceAccount({ ...account, ...await passwordCredentials(password), active: true, control: false, review: false });
+      for (const [password, account, revision] of seeds) {
+        if (password) await traceAccess.seedTraceAccount(
+          { ...account, ...await passwordCredentials(password), active: true, control: false, review: false },
+          revision,
+        );
       }
     })().catch(error => {
       traceAccountsReady = undefined;
@@ -425,12 +480,13 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     const mobile = fields.get('mobil') === '1';
     const warehouse = fields.get('panel') === 'depo';
     const returnParams = `${mobile ? '&mobil=1' : ''}${warehouse ? '&panel=depo' : ''}`;
+    if (!await allowLoginRequest(request, 'attempt')) return redirect(response, `/trace?giris=limit${returnParams}`);
     if (!await verifyChallenge(fields.get('challengeId'), fields.get('challengeAnswer'))) return redirect(response, `/trace?giris=dogrulama${returnParams}`);
     await seedTraceAccounts();
     const email = fields.get('email')?.trim().toLowerCase();
     const password = fields.get('password');
-    const destination = mobile ? '/mobil' : '/trace';
-    const traceAccount = email && await traceAccess.activeTraceAccount(email);
+    const destination = warehouse ? (mobile ? '/mobil?panel=depo' : '/trace?panel=depo') : mobile ? '/mobil' : '/trace';
+    const traceAccount = email && !accounts.has(email) && await traceAccess.activeTraceAccount(email);
     const validTracePassword = await matchesPassword(traceAccount, password);
     if (validTracePassword && (!warehouse || traceAccount.role === 'warehouse')) {
       const { email, displayName, storeId } = traceAccount;
@@ -445,7 +501,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     }
     if (warehouse) {
       if (!canSignInToWarehouse(account)) return redirect(response, `/trace?giris=yetki${returnParams}`);
-      const scope = await traceAccess.warehouseSignInScope(account.storeId);
+      const scope = await traceAccess.warehouseSignInScope(account.storeId, 'pilot-depo');
       if (!scope) return redirect(response, `/trace?giris=depo${returnParams}`);
       const { email, displayName, storeId } = account;
       await signIn(request, response, destination,
@@ -554,12 +610,12 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     return { roles: [role], storeId: await requiredStore(body.storeId), canApprove: role === 'admin' && body.canApprove === true, ...assignment };
   }
 
-  async function insertManagedAccount(body, permissions, password = body.password) {
+  async function insertManagedAccount(body, permissions) {
     const email = requiredUsername(body);
-    if (accounts.has(email)) throw new RequestError(409, 'Bu kullanıcı adı zaten kayıtlı.');
+    if (accounts.has(email) || email === warehouseEmail || email === auditorEmail) throw new RequestError(409, 'Bu kullanıcı adı zaten kayıtlı.');
     const displayName = permissions.roles.includes('staff') || body.displayName
       ? requiredText(body, 'displayName', 'Ad soyad', 100) : undefined;
-    const credentials = await passwordCredentials(password);
+    const credentials = await passwordCredentials(body.password);
     await users.insertOne({ _id: email, email, ...credentials, ...permissions, ...(displayName && { displayName }), active: true });
   }
 
@@ -569,19 +625,22 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
   }
 
   async function handleManagerAccounts(request, response, path, session) {
-    if (session.role !== 'manager') throw new RequestError(403, 'Bu işlem için yönetici paneline giriş yapın.');
-    const staffScope = { storeId: session.storeId, roles: ['staff'] };
+    const admin = session.role === 'admin';
+    if (!admin && session.role !== 'manager') throw new RequestError(403, 'Personel yönetimi için admin veya yönetici yetkisi gerekir.');
+    const staffScope = { roles: ['staff'], builtIn: { $in: [null, false] }, ...(!admin && { storeId: session.storeId }) };
     if (request.method === 'GET' && path === '/api/manager/staff') {
-      const list = await users.find(staffScope, { projection: { _id: 0, email: 1, displayName: 1, active: 1, staffDepartment: 1 } }).sort({ displayName: 1, email: 1 }).toArray();
+      const list = await users.find(staffScope, {
+        projection: { _id: 0, email: 1, displayName: 1, active: 1, staffDepartment: 1, storeId: 1 },
+      }).sort({ displayName: 1, email: 1 }).toArray();
       json(response, 200, list);
       return;
     }
     if (request.method !== 'POST') throw new RequestError(404, 'Personel işlemi bulunamadı.');
     const body = await readJson(request);
     if (path === '/api/manager/staff') {
-      const password = body.password === '' || body.password === undefined ? defaultPilotPassword : body.password;
       const staffDepartment = requiredStaffDepartment(body.staffDepartment);
-      await insertManagedAccount(body, { roles: ['staff'], storeId: session.storeId, canApprove: false, staffDepartment }, password);
+      const storeId = admin ? await requiredStore(body.storeId) : session.storeId;
+      await insertManagedAccount(body, { roles: ['staff'], storeId, canApprove: false, staffDepartment });
     } else if (path === '/api/manager/staff/department') {
       const email = requiredUsername(body);
       const staffDepartment = requiredStaffDepartment(body.staffDepartment);
@@ -883,6 +942,9 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
 
   async function handleTrace(request, response, path, session) {
     const access = await traceAccess.resolveTraceAccess(session);
+    if (access.role === 'auditor' && request.method !== 'GET' && request.method !== 'HEAD') {
+      throw new RequestError(403, 'Denetçi erişimi salt okunurdur.');
+    }
     if (path === '/api/trace/management' && request.method === 'GET') {
       const [management, mobileStaff] = await Promise.all([
         traceAccess.traceManagement(access), mobileAccess.listMobileStaff(access),
@@ -1224,7 +1286,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
     if (path === '/api/trace' || path.startsWith('/api/trace/')) return handleTrace(request, response, path, session);
     if (session.role === 'trace') throw new RequestError(403, 'Bu hesap MU TRACE’e erişebilir.');
     if (path === '/api/scan' || path.startsWith('/api/scan/')) {
-      if (!scanEnabled()) throw new RequestError(404, 'Bu modül şu anda kullanıma açık değil.');
+      if (!scanEnabled(session)) throw new RequestError(404, 'Bu modül şu anda kullanıma açık değil.');
       return handleScan(request, response, path, session, new URL(request.url, 'http://localhost').searchParams);
     }
     if (request.method === 'GET' && path === '/api/context') {
@@ -1235,7 +1297,7 @@ function createCore(database, challenge, scanEnabled, trace, traceAccess, traceC
       const assignment = role === 'staff' ? (await users.findOne({ _id: email }))?.staffDepartment : undefined;
       const jobTitle = Object.hasOwn(staffJobTitles, assignment) ? staffJobTitles[assignment] : undefined;
       json(response, 200, { email, displayName, role, title: panels[role], canApprove, canChangePassword, storeId, stores: locations,
-        jobTitle, staffDepartments: role !== 'staff' ? staffJobTitles : undefined, scanEnabled: scanEnabled() });
+        jobTitle, staffDepartments: role !== 'staff' ? staffJobTitles : undefined, scanEnabled: scanEnabled(session) });
       return;
     }
     if (path.startsWith('/api/admin/')) return handleManagement(request, response, path, session);

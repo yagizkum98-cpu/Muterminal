@@ -3,15 +3,16 @@ import styles from './Mobile.module.css';
 
 export type MobileSection = 'home' | 'lookup' | 'report' | 'management';
 
-export default function MobileNav({ current, canLookup, canManage, personal }: {
-  current: MobileSection; canLookup: boolean; canManage: boolean; personal: boolean;
+export default function MobileNav({ current, canLookup, canManage, personal, warehouse }: {
+  current: MobileSection; canLookup: boolean; canManage: boolean; personal: boolean; warehouse?: boolean;
 }) {
   const t = useTranslate();
+  const traceHref = warehouse ? '/trace?mobil=1&panel=depo' : '/trace?mobil=1';
   const links = [
-    { page: 'home', label: 'Ana ekran', href: '/mobil' },
+    { page: 'home', label: 'Ana ekran', href: warehouse ? '/mobil?panel=depo' : '/mobil' },
     ...(canLookup ? [
-      { page: 'lookup', label: 'Ürün tara', href: '/trace?mobil=1' },
-      { page: 'report', label: personal ? 'Kontrollerim' : 'Raporlar', href: '/trace?mobil=1&bolum=rapor' },
+      { page: 'lookup', label: 'Ürün tara', href: traceHref },
+      { page: 'report', label: personal ? 'Kontrollerim' : 'Raporlar', href: `${traceHref}&bolum=rapor` },
     ] : []),
     ...(canManage ? [{ page: 'management', label: 'Yönetim', href: '/trace?mobil=1&bolum=yonetim' }] : []),
   ];

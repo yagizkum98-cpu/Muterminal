@@ -4,10 +4,11 @@ import type { TraceAccess } from '../components/trace-policy';
 import { TraceError } from './trace';
 
 type Source = 'core' | 'trace';
-type Session = { role: string; email: string; storeId: string; scope?: { role: string; tenantId: string | null }; mobileApproval?: string };
+type Session = { role: string; email: string; storeId: string; scope?: { role: string; tenantId: string | null }; mobileApproval?: string; canSwitchPanels?: boolean };
 export type MobileStaffState = 'allowed' | 'unassigned' | 'challenge';
 
 function staffKey(session: Session) {
+  if (session.canSwitchPanels) return null;
   if (session.role === 'staff') return { tenant: 'pilot', source: 'core' as const, email: session.email, store: session.storeId };
   if (session.role === 'trace' && session.scope?.role === 'staff' && session.scope.tenantId) {
     return { tenant: session.scope.tenantId, source: 'trace' as const, email: session.email, store: session.storeId };

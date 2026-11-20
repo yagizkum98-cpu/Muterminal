@@ -23,15 +23,15 @@ Ana sayfa MuTerminal Core ve MuDecision'ı tanıtır. Modüllere erişmek için 
 
 `tester@muterminal.com` hesabının varsayılan şifresi `tester123!`. İlk kurulumda `MUTERMINAL_TESTER_PASSWORD` ile farklı bir başlangıç şifresi verebilirsiniz.
 
-Giriş formunda **Admin**, **Manager** veya **Staff** panelini seçin. Tester hesabı üç panele de aynı bilgilerle girer ve oturumda seçtiği panelin yetkilerini kullanır. Admin kullanıcı ve mağaza oluşturabilir, hesapları etkinleştirebilir veya devre dışı bırakabilir, ayarları ve tüm mağaza raporlarını yönetebilir. Yönetici yalnızca kendi mağazasında talepleri değerlendirir. Personel kontrol kaydı ve öneri oluşturur, kendi işlem geçmişini görür. Karar ve depo farkı onayı yöneticiye ve yetkilendirilmiş adminlere açıktır. Varsayılan adminin onay yetkisi `MUTERMINAL_ADMIN_CAN_APPROVE=false` ile kapatılabilir.
+Giriş formunda **Admin**, **Yönetici**, **Personel** veya **Depo** girişini seçin. Pilot admin ve tester, aynı oturumla paneller arasında geçebilir ve açık panelin yetkilerini kullanır. Admin kullanıcı ve mağaza oluşturabilir, hesapları etkinleştirebilir veya devre dışı bırakabilir, ayarları ve tüm mağaza raporlarını yönetebilir. Yönetici kendi mağazasında talepleri değerlendirir. Personel kontrol kaydı ve öneri oluşturur, kendi işlem geçmişini görür. Karar ve depo farkı onayı yöneticiye ve yetkilendirilmiş adminlere açıktır. Varsayılan adminin onay yetkisi `MUTERMINAL_ADMIN_CAN_APPROVE=false` ile kapatılabilir.
 
-**Yönetici girişi** için pilot hesabı `yonetici@muterminal.com`, başlangıç şifresi `1234567890`. Yönetici panelindeki **Personel Yönetimi** sekmesinde ad soyad ve kullanıcı adı girerek personel hesabı oluşturulur. İlk şifre boş bırakılırsa `1234567890` kullanılır. Yönetici kendi şifresini ve mağazasındaki personelin şifrelerini değiştirebilir. Personel, ana sayfadaki **Personel girişi** düğmesiyle kendi hesabını kullanır.
+**Yönetici girişi** için pilot hesabı `yonetici@muterminal.com`, yerel varsayılan şifresi `1234567890`. Admin ve yönetici, **Personel Yönetimi** sekmesinde her personel için kullanıcı adı ve başlangıç şifresi belirler, şifreyi yeniler ve iş unvanı atar. Admin mağazayı seçer. Yönetici kendi mağazasındaki hesapları yönetir. Personel, ana sayfadaki **Personel girişi** düğmesiyle kendi hesabını kullanır.
 
 Yeni personel hesaplarında dört iş unvanından biri seçilir. Yönetici **Personel Yönetimi**, admin ise **Sistem Yönetimi** bölümünden unvan atayabilir veya güncelleyebilir. Mevcut personel reyon atamaları iş unvanlarına karşılık gelir ve personel kendi unvanını panelinde görür.
 
 ## Operasyon modülleri
 
-**MuScan** geliştirme aşamasındadır. Personel panelinde durum bilgisi gösterilir. Prosedürler tamamlanıp açılış onayı verildiğinde sunucu ortamında `MUTERMINAL_SCAN_ENABLED=true` ile ekran ve API etkinleştirilebilir. Mevcut kontrol kayıtları Core işlem geçmişinde saklanır.
+**MuScan** geliştirme aşamasındadır. Pilot tester hesabı ekranı ve API'yi test edebilir. Prosedürler tamamlanıp açılış onayı verildiğinde sunucu ortamında `MUTERMINAL_SCAN_ENABLED=true` ile personel erişimi etkinleştirilebilir. Mevcut kontrol kayıtları Core işlem geçmişinde saklanır.
 
 Ürün kaydederken ana reyon veya alt reyon seçilir. **Kasa Reyon**, **Kasap**, **Şarküteri**, **Meyve Sebze** ve **Unlu Mamuller** ana reyonları Core kayıtlarını, MuDecision dosyalarını ve karar geçmişini filtreler. Kasa Reyon altında 20 hazır alt reyon bulunur. Admin, **Sistem Yönetimi → Reyon tanımları** bölümünden ana reyonlara yeni alt seçenekler ekleyebilir. Eski reyon kimlikleri aynı şekilde kullanılır. Reyon bilgisi bulunmayan kayıtlar **Reyon atanmamış** altında görünür ve Core listesinden ilgili reyona atanabilir.
 
@@ -77,7 +77,9 @@ Ana sayfadaki veya paneldeki **MU TRACE** bağlantısından `/trace` ekranını 
 
 Mevcut CORE Admin, Yönetici ve Personel hesapları MU TRACE’te pilot firma kapsamına eşlenir. MU TRACE yönetim ekranında oluşturulan hesaplar giriş için `/trace` formunu kullanır. Yönetim ekranından kapsam düzenlenebilir, şifre yenilenebilir ve hesap devre dışı bırakılabilir. Firma admini, lot ekranındaki **Depo lot ataması** ile bir lotu aynı mağazaya bağlı depoya yetkilendirir.
 
-Pilot **Depo Görevlisi** hesabı `depo@muterminal.com` adresini kullanır. İlk hazırlama için yerel ortamda `MUTERMINAL_TRACE_PILOT_WAREHOUSE_PASSWORD` ayarlanır. İsteğe bağlı platform hesabı `MUTERMINAL_TRACE_SUPER_EMAIL` ve `MUTERMINAL_TRACE_SUPER_PASSWORD` ile hazırlanır. Bu başlangıç değerleri mevcut hesapların şifresini değiştirmez. Sonraki şifre yenilemeleri MU TRACE yönetim ekranından yapılır. Kurumsal OIDC/MFA için kimlik sağlayıcısı yapılandırması gerekir.
+Pilot **Depo Görevlisi** hesabı `depo@muterminal.com` adresini kullanır. İlk hazırlama için `MUTERMINAL_TRACE_PILOT_WAREHOUSE_PASSWORD` ayarlanır. İsteğe bağlı platform hesabı `MUTERMINAL_TRACE_SUPER_EMAIL` ve `MUTERMINAL_TRACE_SUPER_PASSWORD` ile hazırlanır.
+
+Ortamda tanımlanan pilot admin, tester, yönetici ve depo şifrelerini mevcut hesaplara bir kez uygulamak için `MUTERMINAL_PILOT_PASSWORD_REVISION` değerini değiştirin. Aynı değerle sonraki başlatmalarda panelden yapılan şifre değişiklikleri korunur.
 
 Üretimden tüketiciye kadar aşamalar kaydedilen verilerle görünür. Canlı üretici, ERP, WMS ve taşıyıcı verileri için kaynak bağlantıları ayrıca kurulmalıdır.
 

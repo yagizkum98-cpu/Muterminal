@@ -314,8 +314,9 @@ function configureStores() {
   const filter = $('store-filter');
   filter.innerHTML = ("<option value=\"\">" + escapeHtml(t("Tüm mağazalar")) + "</option>") + options;
   filter.value = activeStore;
-  for (const id of ['entry-store', 'user-store']) {
+  for (const id of ['entry-store', 'user-store', 'member-store']) {
     const select = $(id);
+    if (!select) continue;
     const previous = select.value;
     select.innerHTML = options;
     select.value = previous || activeStore || panel.storeId;
@@ -386,6 +387,7 @@ async function loadTeam() {
   const staff = await response.json();
   $('team-members').innerHTML = staff.map(member => `<li>
     <strong>${escapeHtml(member.displayName ?? member.email)}</strong> · ${escapeHtml(member.email)}
+    ${panel.role === 'admin' ? ` · ${escapeHtml(panel.stores.find(store => store.id === member.storeId)?.name ?? member.storeId ?? '')}` : ''}
     ${member.active ? '' : ' · Devre dışı'}
     <button type="button" class="secondary" data-member="${escapeHtml(member.email)}">${escapeHtml(t("Şifreyi değiştir"))}</button>
     <form class="department-assignment">
@@ -523,7 +525,11 @@ function render() {
 }
 
 async function requestApi(path, options) {
-  const response = await fetch(path, options);
+  const headers = new Headers(options?.headers);
+  const { panel: role, mobile } = $('core-panel').dataset;
+  headers.set('X-MuTerminal-Panel', role);
+  if (mobile === '1') headers.set('X-MuTerminal-Mobile', '1');
+  const response = await fetch(path, { ...options, headers });
   if (response.status === 401) window.location.replace(panel ? `/?panel=${panel.role}#admin-giris` : '/#admin-giris');
   return response;
 }
@@ -969,7 +975,7 @@ async function start() {
       updateUserRoleFields();
       $('modules').insertAdjacentHTML('beforeend', ("<button type=\"button\" data-module=\"management\">" + escapeHtml(t("Sistem Yönetimi")) + "</button>"));
     }
-    if (panel.role === 'manager') {
+    if (panel.role === 'admin' || panel.role === 'manager') {
       $('member-department').innerHTML = staffJobTitleOptions();
       $('modules').insertAdjacentHTML('beforeend', ("<button type=\"button\" data-module=\"staff-management\">" + escapeHtml(t("Personel Yönetimi")) + "</button>"));
     }

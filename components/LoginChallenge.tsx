@@ -13,7 +13,7 @@ export default function LoginChallenge({ initial, refreshHref, imageClassName }:
   const image = useRef<HTMLImageElement>(null);
   const [challenge, setChallenge] = useState(initial);
   const [problem, setProblem] = useState('');
-  const [refreshError, setRefreshError] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -33,9 +33,13 @@ export default function LoginChallenge({ initial, refreshHref, imageClassName }:
     event.preventDefault();
     if (refreshing) return;
     setRefreshing(true);
-    setRefreshError(false);
+    setRefreshError('');
     try {
       const response = await fetch('/api/session/challenge', { method: 'POST' });
+      if (response.status === 429) {
+        setRefreshError('Çok fazla doğrulama isteği gönderildi. Biraz bekleyip tekrar deneyin.');
+        return;
+      }
       if (!response.ok) throw new Error();
       const next: IssuedChallenge = await response.json();
       setProblem('');
@@ -45,7 +49,7 @@ export default function LoginChallenge({ initial, refreshHref, imageClassName }:
         answer.current.focus();
       }
     } catch {
-      setRefreshError(true);
+      setRefreshError('Doğrulama kodu yenilenemedi. Tekrar deneyin.');
     } finally {
       setRefreshing(false);
     }
@@ -60,7 +64,7 @@ export default function LoginChallenge({ initial, refreshHref, imageClassName }:
       <a href={refreshHref} onClick={refresh}>{t("Harfleri yenile")}</a>
     </div>
     {problem && <p role="status">{t(problem)}</p>}
-    {refreshError && <p role="alert">{t("Doğrulama kodu yenilenemedi. Tekrar deneyin.")}</p>}
+    {refreshError && <p role="alert">{t(refreshError)}</p>}
     <input type="hidden" name="challengeId" value={challenge.id} />
     <input ref={answer} id={answerId} name="challengeAnswer" type="text" autoComplete="off" spellCheck={false}
       autoCapitalize="characters" pattern="[A-Za-z]{5}" maxLength={5} required />

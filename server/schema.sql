@@ -53,6 +53,13 @@ CREATE TABLE IF NOT EXISTS login_challenges (
 );
 CREATE INDEX IF NOT EXISTS login_challenges_expiration_idx ON login_challenges (expires_at);
 
+CREATE TABLE IF NOT EXISTS login_limits (
+  key text PRIMARY KEY,
+  attempts integer NOT NULL,
+  expires_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS login_limits_expiration_idx ON login_limits (expires_at);
+
 CREATE INDEX IF NOT EXISTS products_trace_barcode_idx ON products (barcode, store_id, lot);
 CREATE INDEX IF NOT EXISTS products_trace_product_code_idx ON products ((document->>'productCode'));
 
