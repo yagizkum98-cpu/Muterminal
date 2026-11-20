@@ -22,7 +22,7 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
   const defaultSettings = { expiryWarningDays: 7, blockRksAcrossLots: false, productSource: 'Manuel ürün girişi', erpEndpoint: '', wmsEndpoint: '' };
   const derivePassword = promisify(scrypt);
   const kasaDepartments = {
-    'unlu-mamuller': 'Unlu Mamuller',
+    'unlu-mamuller': 'Pastacılık',
     un: 'Un',
     seker: 'Şeker',
     sut: 'Süt',
@@ -54,10 +54,16 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
   const hashText = value => createHash('sha256').update(value).digest();
   for (const name of [
     'Salça', 'Yağlar', 'Ezme ve Krema', 'Bisküvi', 'Çikolatalar', 'Bebek Ürünleri',
-    'Kedi Ürünleri', 'Köpek Ürünleri', 'Diğer Hayvan Ürünleri',
+    'Kedi Ürünleri', 'Köpek Ürünleri', 'Diğer Hayvan Ürünleri', 'Çaylar', 'Kahveler',
   ]) {
     kasaDepartments[departmentOptionId('kasa-reyon', name)] = name;
   }
+  const builtInDepartments = {
+    'kasa-reyon': kasaDepartments,
+    'unlu-mamuller-reyon': Object.fromEntries(
+      ['Simit+', 'Kruvasan+', 'Börek'].map(name => [departmentOptionId('unlu-mamuller-reyon', name), name]),
+    ),
+  };
   const accounts = new Map([
     [testerEmail, process.env.MUTERMINAL_TESTER_PASSWORD, 'tester123!', Object.keys(panels), true],
     [process.env.MUTERMINAL_ADMIN_EMAIL ?? 'admin@muterminal.com', process.env.MUTERMINAL_ADMIN_PASSWORD, defaultPilotPassword, Object.keys(panels), process.env.MUTERMINAL_ADMIN_CAN_APPROVE !== 'false'],
@@ -578,16 +584,18 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
 
   async function departmentGroups() {
     const extras = await departmentOptions.find().toArray();
-    const known = Object.entries(kasaDepartments).map(([id, name]) => ({ id, name }));
-    return Object.entries(departmentMainNames).map(([id, name]) => ({
-      id, name,
-      children: [
-        ...(id === 'kasa-reyon' ? known : []),
-        ...extras.filter(item => item.parentId === id && (id !== 'kasa-reyon' || !Object.hasOwn(kasaDepartments, item._id)))
-          .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
-          .map(item => ({ id: item._id, name: item.name })),
-      ],
-    }));
+    return Object.entries(departmentMainNames).map(([id, name]) => {
+      const known = builtInDepartments[id] ?? {};
+      return {
+        id, name,
+        children: [
+          ...Object.entries(known).map(([childId, childName]) => ({ id: childId, name: childName })),
+          ...extras.filter(item => item.parentId === id && !Object.hasOwn(known, item._id))
+            .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+            .map(item => ({ id: item._id, name: item.name })),
+        ],
+      };
+    });
   }
 
   async function createSubdepartment(body) {
@@ -749,7 +757,8 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
 
   async function requiredDepartment(department) {
     if (typeof department === 'string') {
-      if (Object.hasOwn(kasaDepartments, department) || Object.hasOwn(departmentMainNames, department)) return department;
+      if (Object.hasOwn(departmentMainNames, department) ||
+          Object.values(builtInDepartments).some(children => Object.hasOwn(children, department))) return department;
       if (/^alt-[0-9a-f]{24}$/.test(department) && await departmentOptions.findOne({ _id: department })) return department;
     }
     throw new RequestError(400, 'Geçerli bir reyon seçin.');

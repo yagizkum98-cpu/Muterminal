@@ -33,7 +33,7 @@ Yeni personel hesaplarında dört iş unvanından biri seçilir. Yönetici **Per
 
 **MuScan** geliştirme aşamasındadır. Pilot tester hesabı ekranı ve API'yi test edebilir. Prosedürler tamamlanıp açılış onayı verildiğinde sunucu ortamında `MUTERMINAL_SCAN_ENABLED=true` ile personel erişimi etkinleştirilebilir. Mevcut kontrol kayıtları Core işlem geçmişinde saklanır.
 
-Ürün kaydederken ana reyon veya alt reyon seçilir. **Kasa Reyon**, **Kasap**, **Şarküteri**, **Meyve Sebze** ve **Unlu Mamuller** ana reyonları Core kayıtlarını, MuDecision dosyalarını ve karar geçmişini filtreler. Kasa Reyon altında 20 hazır alt reyon bulunur. Admin, **Sistem Yönetimi → Reyon tanımları** bölümünden ana reyonlara yeni alt seçenekler ekleyebilir. Eski reyon kimlikleri aynı şekilde kullanılır. Reyon bilgisi bulunmayan kayıtlar **Reyon atanmamış** altında görünür ve Core listesinden ilgili reyona atanabilir.
+Ürün kaydederken ana reyon veya alt reyon seçilir. **Kasa Reyon**, **Kasap**, **Şarküteri**, **Meyve Sebze** ve **Unlu Mamuller** ana reyonları Core kayıtlarını, MuDecision dosyalarını ve karar geçmişini filtreler. Kasa Reyon altında 22 hazır alt reyon bulunur. Admin, **Sistem Yönetimi → Reyon tanımları** bölümünden ana reyonlara yeni alt seçenekler ekleyebilir. Eski reyon kimlikleri aynı şekilde kullanılır. Reyon bilgisi bulunmayan kayıtlar **Reyon atanmamış** altında görünür ve Core listesinden ilgili reyona atanabilir.
 
 Core ve MuDecision listelerinde **🗑️ Sil** düğmesi, onaydan sonra seçilen operasyon kaydını ve o kayda bağlı karar geçmişini kalıcı olarak siler.
 
