@@ -4,6 +4,7 @@ import Head from 'next/head';
 import { useEffect, useState } from 'react';
 import type { GetServerSideProps } from 'next';
 import MobileNav from '../components/MobileNav';
+import NotificationSettings from '../components/NotificationSettings';
 import ChangePassword from '../components/ChangePassword';
 import styles from '../components/Mobile.module.css';
 import { traceRoles, type TraceRole } from '../components/trace-policy';
@@ -86,6 +87,7 @@ export default function MobileHome({ account, approval, invalidCode }: Props) {
         </a>
       </section>}
       {offline && <p className={styles.notice} role="status">{t("Bağlantı kesildi. Ürün kayıtları ve işlemler için internet bağlantısı gerekiyor.")}</p>}
+      {account && !locked && account.role !== 'super' && <NotificationSettings panel={warehouse ? 'depo' : 'trace'} mobile />}
       {account && !locked && <div className={styles.tiles}>
         {canLookup && <a href={`${traceHref}&bolum=rapor`}><strong>{personal ? t("Kontrollerim") : t("Raporlar")}</strong>
           <span>{personal ? t("Kendi taleplerinizi ve sonuçlarını görün.") : t("Riskli lotları, talepleri ve geri çağırma kayıtlarını inceleyin.")}</span></a>}

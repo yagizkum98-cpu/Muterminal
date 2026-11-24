@@ -6,11 +6,29 @@ const timeZone = 'Europe/Istanbul';
 const english = document.documentElement.lang === 'en';
 let messages = {};
 const t = (text, values) => {
+  if (english && typeof text === 'string' && !Object.hasOwn(messages, text)) {
+    const expiry = text.match(/^SKT’ye (\d+) gün$/);
+    if (expiry) return t('SKT’ye {days} gün', { days: expiry[1] });
+    const discrepancy = text.match(/^Sayım farkı ([+-]\d+)$/);
+    if (discrepancy) return t('Sayım farkı {delta}', { delta: discrepancy[1] });
+    const status = text.match(/^(Aynı lot|Onaylandı|Onay bekliyor) · (.+)$/);
+    if (status) {
+      const field = status[1] === 'Aynı lot' ? 'risk' : 'status';
+      return t(`${status[1]} · {${field}}`, { [field]: t(status[2]) });
+    }
+  }
   const message = english && Object.hasOwn(messages, text) ? messages[text] : text;
   return values ? message.replace(/\{(\w+)\}/g, (placeholder, key) => Object.hasOwn(values, key) ? String(values[key]) : placeholder) : message;
 };
 const dateFormat = new Intl.DateTimeFormat(english ? 'en-GB' : 'tr-TR', { timeZone, dateStyle: 'short', timeStyle: 'medium' });
 const dayFormat = new Intl.DateTimeFormat('sv-SE', { timeZone, dateStyle: 'short' });
+const calendarLocale = english ? 'en-GB' : 'tr-TR';
+const calendarDateFormat = new Intl.DateTimeFormat(calendarLocale, { timeZone: 'UTC', dateStyle: 'full' });
+const detailDateFormat = new Intl.DateTimeFormat(calendarLocale, { timeZone: 'UTC', dateStyle: 'medium' });
+const detailDateTimeFormat = new Intl.DateTimeFormat(calendarLocale, { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' });
+const calendarMonthFormat = new Intl.DateTimeFormat(calendarLocale, { timeZone: 'UTC', month: 'long', year: 'numeric' });
+const weekdayFormat = new Intl.DateTimeFormat(calendarLocale, { timeZone: 'UTC', weekday: 'short' });
+const calendarTimeFormat = new Intl.DateTimeFormat('sv-SE', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const historyModule = 'history';
 const decisionModule = 'mudecision';
 const dashboardModule = 'dashboard';
@@ -29,6 +47,9 @@ let handoffFocused = false;
 let managedUsers = [];
 let activeDepartmentGroup = '';
 let activeDepartment = '';
+let calendarDay = '';
+let calendarMonth = dayFormat.format(new Date()).slice(0, 7);
+let calendarEntries = new Map();
 let activeModule = decisionModule;
 let lotFilter;
 let editingId;
@@ -75,6 +96,114 @@ function departmentLabel(department) {
   return departmentNames(department).map(name => t(name)).join(' · ');
 }
 
+function departmentReportScope() {
+  const storeId = panel.role === 'admin' ? activeStore : panel.storeId;
+  return {
+    department: activeDepartmentGroup ? departmentNames(activeDepartment || activeDepartmentGroup) : ['Tüm reyonlar'],
+    store: storeId ? rawStoreName(storeId) : null,
+  };
+}
+
+function renderDepartmentReportScope() {
+  const { department, store } = departmentReportScope();
+  $('department-report-scope').textContent = [...department.map(name => t(name)), store ? t(store) : t('Tüm mağazalar'),
+    calendarDay ? calendarDateFormat.format(new Date(calendarDay)) : t('Tüm tarihler')].join(' · ');
+}
+
+function indexCalendar() {
+  const entries = new Map();
+  function add(day, item) {
+    if (!entries.has(day)) entries.set(day, []);
+    entries.get(day).push(item);
+  }
+  function addActivity(value, kind, record, label) {
+    const instant = Date.parse(value);
+    if (Number.isFinite(instant)) add(dayFormat.format(instant), { kind, record, label, time: calendarTimeFormat.format(instant) });
+  }
+  for (const product of products.filter(inDepartment)) {
+    addActivity(product.createdAt, 'products', product, 'Ürün kaydı');
+    if (!canExportProduct(product)) continue;
+    for (const field of operations[product.type]?.fields ?? []) {
+      if (field.type !== 'date' && field.type !== 'datetime-local') continue;
+      const value = product.details?.[field.name];
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?$/.test(value)) continue;
+      const [day, time] = value.split('T');
+      add(day, { kind: 'scheduled', record: product, label: field.label, time, value });
+    }
+  }
+  for (const log of logs.filter(inDepartment)) {
+    if (log.choice !== 'Kontrol kaydı oluşturuldu') addActivity(log.time, 'history', log, log.choice);
+  }
+  return entries;
+}
+
+function calendarItems(day) {
+  const items = calendarEntries.get(day) ?? [];
+  return Object.hasOwn(operations, activeModule)
+    ? items.filter(item => item.record.type === activeModule)
+    : items.filter(item => item.kind !== 'products' || canExportProduct(item.record));
+}
+
+function renderCalendar() {
+  const first = new Date(`${calendarMonth}-01`);
+  const next = new Date(first);
+  next.setUTCMonth(next.getUTCMonth() + 1, 0);
+  const monthTitle = calendarMonthFormat.format(first);
+  if ($('calendar-month').textContent !== monthTitle) $('calendar-month').textContent = monthTitle;
+  $('calendar-previous').disabled = calendarMonth === '0001-01';
+  $('calendar-next').disabled = calendarMonth === '9999-12';
+  const weekdays = Array.from({ length: 7 }, (_, day) => `<span>${escapeHtml(weekdayFormat.format(Date.UTC(2024, 0, day + 1)))}</span>`);
+  const blanks = '<span aria-hidden="true"></span>'.repeat((first.getUTCDay() + 6) % 7);
+  const today = dayFormat.format(new Date());
+  const days = Array.from({ length: next.getUTCDate() }, (_, index) => {
+    const day = `${calendarMonth}-${String(index + 1).padStart(2, '0')}`;
+    const count = calendarItems(day).length;
+    const label = calendarDateFormat.format(new Date(day));
+    return `<button type="button" class="secondary" data-day="${day}" aria-pressed="${day === calendarDay}"
+      ${day === today ? 'aria-current="date"' : ''} ${count ? 'data-events' : ''}
+      aria-label="${escapeHtml(count ? `${label} · ${t('{count} kayıt', { count })}` : label)}">${index + 1}${count ? `<small>${count}</small>` : ''}</button>`;
+  });
+  const grid = $('calendar-days');
+  const focusedDay = grid.contains(document.activeElement) ? document.activeElement.dataset.day : null;
+  grid.innerHTML = weekdays.join('') + blanks + days.join('');
+  if (focusedDay) grid.querySelector(`[data-day="${focusedDay}"]`)?.focus({ preventScroll: true });
+
+  const items = calendarItems(calendarDay).sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''));
+  const agendaTitle = calendarDay ? calendarDateFormat.format(new Date(calendarDay)) : t('Günlük kayıtlar');
+  if ($('calendar-agenda-title').textContent !== agendaTitle) $('calendar-agenda-title').textContent = agendaTitle;
+  const agendaStatus = $('calendar-agenda-status');
+  agendaStatus.hidden = Boolean(items.length);
+  agendaStatus.textContent = t(calendarDay ? 'Bu gün için kayıt bulunamadı.' : 'Kayıtları görmek için bir gün seçin.');
+  const agenda = $('calendar-agenda');
+  agenda.hidden = !items.length;
+  agenda.innerHTML = items.map(({ record, kind, label, time }) => {
+    const operation = operations[record.type]?.title ?? record.type;
+    const context = [t(operation), storeName(record.storeId), departmentLabel(record.department), `${t('Lot')} ${record.lot}`];
+    const description = kind === 'history' ? `${t('Karar')} · ${t(label)}` : t(label);
+    return `<li><div><strong>${escapeHtml(record.name)}</strong>${time ? `<time datetime="${time}">${time}</time>` : ''}</div>
+      <span>${escapeHtml(description)}</span><small>${escapeHtml(context.join(' · '))}</small></li>`;
+  }).join('');
+}
+
+function selectCalendarDay(day) {
+  calendarDay = day;
+  if (day) calendarMonth = day.slice(0, 7);
+  $('calendar-date').value = day;
+  $('calendar-all').setAttribute('aria-pressed', String(!day));
+  $('records-date').value = day;
+  $('records-all-dates').setAttribute('aria-pressed', String(!day));
+  renderDepartmentReportScope();
+  renderCalendar();
+  if (Object.hasOwn(operations, activeModule)) renderRows();
+}
+
+function moveCalendarMonth(offset) {
+  const month = new Date(`${calendarMonth}-01`);
+  month.setUTCMonth(month.getUTCMonth() + offset);
+  calendarMonth = month.toISOString().slice(0, 7);
+  renderCalendar();
+}
+
 function departmentOptions() {
   return ("<option value=\"\">" + escapeHtml(t("Reyon seçin")) + "</option>") + departmentGroups.map(group => `
     <optgroup label="${escapeHtml(t(group.name))}">
@@ -108,6 +237,7 @@ function configureDepartments(groups) {
     `<button type="button" data-department-group="${escapeHtml(id)}" aria-pressed="${id === activeDepartmentGroup}">${escapeHtml(t(name))}</button>`
   )).join('');
   renderSubdepartments();
+  renderDepartmentReportScope();
   const field = $('department');
   const previous = field.value;
   field.innerHTML = departmentOptions();
@@ -128,7 +258,10 @@ function renderDetails(product) {
   if (!product.details) return ("<small>" + escapeHtml(t("Operasyon bilgileri eksik")) + "</small>");
   const values = operations[product.type].fields.map(field => {
     const value = product.details[field.name];
-    return [field.label, field.type === 'datetime-local' ? (value?.replace('T', ' ') ?? '—') : (value ?? '—')];
+    const hasTime = field.type === 'datetime-local';
+    const date = typeof value === 'string' && (hasTime || field.type === 'date') ? Date.parse(hasTime ? `${value}Z` : value) : NaN;
+    const formatted = Number.isFinite(date) ? (hasTime ? detailDateTimeFormat : detailDateFormat).format(date) : value;
+    return [field.label, formatted ?? '—'];
   });
   if (product.details.destination) values.push(['Varış noktası', product.details.destination]);
   return values.map(([label, value]) => `<small>${escapeHtml(t(label))}</small><br>${escapeHtml(value)}<br>`).join('');
@@ -166,7 +299,7 @@ function rowActions(product) {
 
 function renderProductStatus(product) {
   return `<span class="tag">${escapeHtml(t(product.status))}</span>
-    ${product.proposal ? ("<small class=\"risk tag warn\">" + escapeHtml(t("Onay bekliyor")) + "</small>") : ''}
+    ${product.proposal && product.status !== 'Onay bekliyor' ? ("<small class=\"risk tag warn\">" + escapeHtml(t("Onay bekliyor")) + "</small>") : ''}
     ${product.assessment ? `<small class="risk">MuDecision · ${escapeHtml(t(product.assessment))}</small>` : ''}
     ${product.risk ? `<small class="risk tag ${escapeHtml(product.risk.level)}">${escapeHtml(t(product.risk.label))}</small>` : ''}`;
 }
@@ -215,18 +348,47 @@ function renderDecisionFiles() {
     : ("<p>" + escapeHtml(t("Henüz ürün kaydı yok. Bir operasyon modülünden ürün eklediğinizde karar dosyası burada görünecek.")) + "</p>"));
 }
 
-function renderRows() {
+function recordedDay(product) {
+  const time = Date.parse(product.createdAt);
+  return Number.isFinite(time) ? dayFormat.format(time) : '';
+}
+
+function operationRecordGroups(forExport = false) {
   const query = $('search').value.trim().toLocaleLowerCase('tr');
-  const matching = products.filter(product => (
-    product.type === activeModule && inDepartment(product) &&
-    [product.name, product.code, product.lot].join(' ').toLocaleLowerCase('tr').includes(query)
-  ));
+  const groups = new Map(calendarDay ? [[calendarDay, []]] : []);
+  for (const product of products) {
+    if (product.type !== activeModule || !inDepartment(product) || (forExport && !canExportProduct(product))) continue;
+    if (![product.name, product.code, product.lot].join(' ').toLocaleLowerCase('tr').includes(query)) continue;
+    const day = recordedDay(product);
+    if (calendarDay && day !== calendarDay) continue;
+    if (!groups.has(day)) groups.set(day, []);
+    groups.get(day).push(product);
+  }
+  return [...groups].sort(([a], [b]) => b.localeCompare(a));
+}
+
+function operationQuantity(product) {
+  return product.type === 'Depo Fark'
+    ? (product.details ? product.details.physicalStock - product.details.systemStock : null)
+    : product.qty;
+}
+
+function operationQuantityLabel(type) {
+  return type === 'Depo Fark' ? 'Sayım farkı' : operations[type].quantityLabel || 'Adet';
+}
+
+function renderRows() {
+  const groups = operationRecordGroups();
   const options = departmentOptions();
-  $('rows').innerHTML = matching.map(product => `
+  const empty = `<tr><td colspan="6">${escapeHtml(t('Kayıt bulunamadı'))}</td></tr>`;
+  const row = product => {
+    const quantity = operationQuantity(product);
+    const time = Date.parse(product.createdAt);
+    return `
     <tr id="record-${escapeHtml(product.id)}" tabindex="-1">
-      <td>${escapeHtml(product.name)}<br><small>${escapeHtml(storeName(product.storeId))} · ${escapeHtml(departmentLabel(product.department))}</small></td>
+      <td>${escapeHtml(product.name)}<br><small>${escapeHtml(storeName(product.storeId))} · ${escapeHtml(departmentLabel(product.department))}${Number.isFinite(time) ? ` · ${calendarTimeFormat.format(time)}` : ''}</small></td>
       <td>${escapeHtml(product.code)}<br><small>${escapeHtml(product.lot)}</small></td>
-      <td>${escapeHtml(product.type === 'Depo Fark' ? (product.details ? signed(product.details.physicalStock - product.details.systemStock) : '—') : product.qty)}</td>
+      <td>${escapeHtml(quantity == null ? '—' : product.type === 'Depo Fark' ? signed(quantity) : quantity)}</td>
       <td class="details">${renderDetails(product)}</td>
       <td>${renderProductStatus(product)}</td>
       <td>
@@ -236,7 +398,15 @@ function renderRows() {
           <button type="submit" class="secondary">${escapeHtml(t("Reyon ata"))}</button>
         </form>` : ''}
       </td>
-    </tr>`).join('') || ("<tr><td colspan=\"6\">" + escapeHtml(t("Kayıt bulunamadı")) + "</td></tr>");
+    </tr>`;
+  };
+  const table = $('records-table');
+  for (const body of Array.from(table.tBodies)) body.remove();
+  table.insertAdjacentHTML('beforeend', groups.map(([day, items]) => {
+    const heading = day ? calendarDateFormat.format(new Date(day)) : t('Kayıt tarihi bilinmiyor');
+    return `<tbody><tr class="records-day"><th scope="rowgroup" colspan="6">${escapeHtml(heading)}<small>${escapeHtml(t('{count} kayıt', { count: items.length }))}</small></th></tr>
+      ${items.length ? items.map(row).join('') : empty}</tbody>`;
+  }).join('') || `<tbody>${empty}</tbody>`);
 }
 
 function historyRows() {
@@ -433,7 +603,7 @@ function renderEntry(product) {
   $('save-product').textContent = product ? t("Bilgileri kaydet") : t("Ürünü kaydet");
   $('cancel-edit').hidden = !product;
   $('quantity-label').textContent = t(quantityLabel);
-  $('quantity-column').textContent = stockCount ? t("Sayım farkı") : t(quantityLabel);
+  $('quantity-column').textContent = t(operationQuantityLabel(activeModule));
   $('quantity-field').hidden = stockCount;
   $('qty').required = !stockCount && !product;
   $('qty').disabled = stockCount || Boolean(product);
@@ -455,6 +625,7 @@ function selectModule(type, product) {
   const isStaffManagement = type === staffManagementModule;
   const isOperation = Object.hasOwn(operations, type);
   activeModule = type;
+  renderCalendar();
   lotFilter = product;
   currentId = null;
   editingId = undefined;
@@ -512,6 +683,8 @@ function selectModule(type, product) {
 }
 
 function render() {
+  calendarEntries = indexCalendar();
+  renderCalendar();
   const visibleProducts = products.filter(inDepartment);
   const stats = [
     ['Toplam ürün kaydı', visibleProducts.length],
@@ -565,15 +738,17 @@ async function refresh() {
     }
     showStatus('sync-status', '');
     $('export').disabled = false;
-    $('report-export-summary').disabled = false;
-    $('report-export-history').disabled = false;
+    setReportAvailability(true);
   } catch {
     if (id !== refreshId) return;
     showStatus('sync-status', 'Kayıtlar güncellenemedi. MuTerminal sunucusunu ve PostgreSQL bağlantısını kontrol edin.', true);
     $('export').disabled = true;
-    $('report-export-summary').disabled = true;
-    $('report-export-history').disabled = true;
+    setReportAvailability(false);
   }
+}
+
+function setReportAvailability(available) {
+  for (const kind of ['department', 'operation', 'summary', 'history']) $(`report-export-${kind}`).disabled = !available;
 }
 
 async function writeApi(path, method, body) {
@@ -668,10 +843,12 @@ function handleProductAction(event) {
     return;
   }
   if (button.dataset.action === 'open-operation') {
+    const day = recordedDay(product);
+    if (calendarDay && calendarDay !== day) selectCalendarDay(day);
     selectModule(product.type);
     const row = $(`record-${product.id}`);
-    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    row.focus({ preventScroll: true });
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row?.focus({ preventScroll: true });
     return;
   }
   if (button.dataset.action === 'edit') {
@@ -700,7 +877,7 @@ function handleProductAction(event) {
   $('staff').focus({ preventScroll: true });
 }
 
-$('rows').addEventListener('click', handleProductAction);
+$('records-table').addEventListener('click', handleProductAction);
 $('decision-files').addEventListener('click', handleProductAction);
 $('approval-list').addEventListener('click', handleProductAction);
 
@@ -724,7 +901,7 @@ $('approval-list').addEventListener('submit', async event => {
   }
 });
 
-$('rows').addEventListener('submit', async event => {
+$('records-table').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.target;
   const button = form.querySelector('button');
@@ -793,6 +970,7 @@ function selectDepartmentScope(group, department = '') {
   else for (const button of $('subdepartments').querySelectorAll('button')) {
     button.setAttribute('aria-pressed', String(button.dataset.department === department));
   }
+  renderDepartmentReportScope();
   if (!editingId) $('department').value = defaultDepartment();
   currentId = null;
   $('decision').hidden = true;
@@ -808,8 +986,24 @@ $('subdepartments').addEventListener('click', event => {
   const button = event.target.closest('button[data-department]');
   if (button) selectDepartmentScope(activeDepartmentGroup, button.dataset.department);
 });
+$('calendar-previous').addEventListener('click', () => moveCalendarMonth(-1));
+$('calendar-next').addEventListener('click', () => moveCalendarMonth(1));
+$('calendar-today').addEventListener('click', () => selectCalendarDay(dayFormat.format(new Date())));
+$('calendar-all').addEventListener('click', () => selectCalendarDay(''));
+$('calendar-date').addEventListener('change', event => {
+  if (event.target.validity.valid) selectCalendarDay(event.target.value);
+});
+$('records-date').addEventListener('change', event => {
+  if (event.target.validity.valid) selectCalendarDay(event.target.value);
+});
+$('records-all-dates').addEventListener('click', () => selectCalendarDay(''));
+$('calendar-days').addEventListener('click', event => {
+  const button = event.target.closest('button[data-day]');
+  if (button) selectCalendarDay(button.dataset.day);
+});
 $('store-filter').addEventListener('change', event => {
   activeStore = event.target.value;
+  renderDepartmentReportScope();
   currentId = null;
   $('decision').hidden = true;
   if (editingId) renderEntry();
@@ -947,11 +1141,35 @@ function downloadJson(data, name) {
   URL.revokeObjectURL(link.href);
 }
 
+function canExportProduct(product) {
+  return panel.role !== 'staff' || product.createdBy === panel.email;
+}
+
+function exportableProducts() {
+  return products.filter(product => inDepartment(product) && canExportProduct(product));
+}
+
 $('export').addEventListener('click', () => {
-  const visible = products.filter(product => inDepartment(product) && (panel.role !== 'staff' || product.createdBy === panel.email));
+  const visible = exportableProducts();
   const scope = activeDepartment || activeDepartmentGroup;
   downloadJson({ products: visible, logs: logs.filter(inDepartment) }, scope ? `muterminal-${scope}-kayitlar.json` : 'muterminal-kayitlar.json');
 });
+
+function reportRecord(record) {
+  return {
+    ...record, store: rawStoreName(record.storeId), department: departmentNames(record.department),
+    operation: operations[record.type]?.title ?? record.type,
+  };
+}
+
+function reportProduct(product) {
+  const fields = product.details ? (operations[product.type]?.fields ?? []).map(field => ({
+    label: field.label, type: field.type, value: product.details[field.name],
+  })) : [];
+  if (product.details?.destination) fields.push({ label: 'Varış noktası', type: 'text', value: product.details.destination });
+  return { ...reportRecord(product), qty: operationQuantity(product), fields, pending: Boolean(product.proposal), missingDetails: !product.details };
+}
+
 $('core-panel').addEventListener('muterminal:report-data', event => {
   const { kind } = event.detail;
   if ($(`report-export-${kind}`)?.disabled || !lastState) return;
@@ -959,10 +1177,26 @@ $('core-panel').addEventListener('muterminal:report-data', event => {
     event.detail.data = { kind, byStore: panel.role === 'admin', rows: reportRows() };
   }
   if (kind === 'history') {
-    event.detail.data = { kind, rows: historyRows().map(log => ({
-      ...log, store: rawStoreName(log.storeId), department: departmentNames(log.department),
-      operation: operations[log.type]?.title ?? log.type,
-    })) };
+    event.detail.data = { kind, rows: historyRows().map(reportRecord) };
+  }
+  if (kind === 'operation' && Object.hasOwn(operations, activeModule)) {
+    event.detail.data = {
+      kind, scope: departmentReportScope(), operation: operations[activeModule].title,
+      date: calendarDay || undefined, quantityLabel: operationQuantityLabel(activeModule),
+      groups: operationRecordGroups(true).map(([day, items]) => ({ day, products: items.map(reportProduct) })),
+    };
+  }
+  if (kind === 'department') {
+    const daily = calendarDay ? calendarEntries.get(calendarDay) ?? [] : null;
+    const recordsFor = key => daily.filter(item => item.kind === key).map(item => item.record);
+    event.detail.data = {
+      kind, scope: departmentReportScope(),
+      ...(daily && { date: calendarDay, scheduled: daily.filter(item => item.kind === 'scheduled').map(({ record, label, value }) => ({
+        ...reportRecord(record), label, value,
+      })) }),
+      products: (daily ? recordsFor('products').filter(canExportProduct) : exportableProducts()).map(reportProduct),
+      history: (daily ? recordsFor('history') : logs.filter(inDepartment)).map(reportRecord),
+    };
   }
 });
 

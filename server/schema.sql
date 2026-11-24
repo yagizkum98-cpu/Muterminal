@@ -183,6 +183,159 @@ CREATE TABLE IF NOT EXISTS trace_mobile_staff_codes (
   PRIMARY KEY (tenant_id, source, email)
 );
 
+CREATE TABLE IF NOT EXISTS notification_subscriptions (
+  id text PRIMARY KEY,
+  account text NOT NULL,
+  account_source text NOT NULL CHECK (account_source IN ('core', 'trace')),
+  session_key text NOT NULL,
+  endpoint text NOT NULL,
+  p256dh text NOT NULL,
+  auth text NOT NULL,
+  language text NOT NULL CHECK (language IN ('tr', 'en')),
+  categories text[] NOT NULL,
+  core_stores text[],
+  trace_stores text[] NOT NULL,
+  tenant_id text,
+  warehouse_id text REFERENCES trace_warehouses(id) ON DELETE CASCADE,
+  personal boolean NOT NULL,
+  mobile boolean NOT NULL,
+  target text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS notification_subscriptions_account_idx ON notification_subscriptions (account, account_source);
+CREATE INDEX IF NOT EXISTS notification_subscriptions_session_idx ON notification_subscriptions (session_key);
+
+CREATE TABLE IF NOT EXISTS notification_events (
+  id text PRIMARY KEY,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+  event_id text NOT NULL REFERENCES notification_events(id) ON DELETE CASCADE,
+  subscription_id text NOT NULL REFERENCES notification_subscriptions(id) ON DELETE CASCADE,
+  category text NOT NULL CHECK (category IN ('control', 'expiry', 'operation', 'warehouse')),
+  expiry_status text,
+  attempts integer NOT NULL DEFAULT 0,
+  available_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL DEFAULT now() + interval '1 day',
+  PRIMARY KEY (event_id, subscription_id)
+);
+CREATE INDEX IF NOT EXISTS notification_deliveries_ready_idx ON notification_deliveries (available_at);
+
+CREATE TABLE IF NOT EXISTS notification_expiry_check (
+  id boolean PRIMARY KEY CHECK (id),
+  checked_at timestamptz NOT NULL
+);
+
+CREATE OR REPLACE FUNCTION queue_notification(event_key text, event_category text, event_store text,
+  event_barcode text, event_lot text, event_actor text, event_owners text[], event_warehouse text,
+  is_trace boolean, event_expiry_status text DEFAULT NULL) RETURNS void LANGUAGE sql AS $$
+  WITH recipients AS MATERIALIZED (
+    SELECT ns.id FROM notification_subscriptions ns
+    WHERE event_category = ANY(ns.categories)
+      AND ((is_trace IS NOT TRUE AND (ns.core_stores IS NULL OR event_store = ANY(ns.core_stores))) OR
+        (is_trace IS NOT FALSE AND event_store = ANY(ns.trace_stores)
+          AND ns.tenant_id = COALESCE((SELECT tenant_id FROM trace_stores WHERE store_id = event_store), 'pilot')))
+      AND (NOT ns.personal OR ns.account = event_actor OR ns.account = ANY(event_owners))
+      AND (ns.warehouse_id IS NULL OR event_warehouse = ns.warehouse_id OR EXISTS (
+        SELECT 1 FROM trace_warehouses w JOIN trace_warehouse_lots l ON l.warehouse_id = w.id
+        WHERE w.id = ns.warehouse_id AND w.store_id = event_store AND l.lot = event_lot
+          AND l.barcode = CASE WHEN event_barcode ~ '^(\d{8}|\d{12,14})$' THEN lpad(event_barcode, 14, '0') ELSE event_barcode END
+      ))
+    FOR KEY SHARE OF ns
+  ), created AS (
+    INSERT INTO notification_events (id) SELECT event_key WHERE EXISTS (SELECT 1 FROM recipients)
+    ON CONFLICT DO NOTHING RETURNING id
+  )
+  INSERT INTO notification_deliveries (event_id, subscription_id, category, expiry_status)
+  SELECT created.id, recipients.id, event_category, event_expiry_status FROM created CROSS JOIN recipients;
+$$;
+
+CREATE OR REPLACE FUNCTION notify_product_change() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  category text;
+  decision jsonb;
+  scan_event boolean;
+  event_key text;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.document->'decisions' IS NOT DISTINCT FROM OLD.document->'decisions'
+      AND NEW.document->'proposal' IS NOT DISTINCT FROM OLD.document->'proposal'
+      AND NEW.document->>'status' IS NOT DISTINCT FROM OLD.document->>'status' THEN RETURN NEW; END IF;
+    decision := NEW.document->'decisions'->-1;
+  END IF;
+  scan_event := COALESCE(decision->>'source' = 'scan', false) OR NEW.document#>'{proposal,scanCheck}' IS NOT NULL;
+  event_key := 'product:' || NEW.id || ':' || txid_current();
+  IF scan_event THEN
+    PERFORM queue_notification(event_key || ':control', 'control', COALESCE(NEW.store_id, 'pilot'), NEW.barcode, NEW.lot,
+      decision->>'actor', ARRAY[decision->>'requestedBy', NEW.document->>'createdBy'], NULL, false);
+  END IF;
+  category := CASE
+    WHEN NEW.document->>'type' IN ('Depo İade', 'Depo Fark', 'Cross-Dock') THEN 'warehouse'
+    WHEN NEW.document->>'type' IN ('RKS Blokaj', 'Delist Blokaj', 'Geçici Blokaj') OR (decision IS NOT NULL AND NOT scan_event) THEN 'operation'
+  END;
+  IF category IS NOT NULL THEN
+    PERFORM queue_notification(event_key || ':' || category, category,
+      COALESCE(NEW.store_id, 'pilot'), NEW.barcode, NEW.lot,
+      decision->>'actor', ARRAY[decision->>'requestedBy', NEW.document->>'createdBy'], NULL, false);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION notify_trace_change() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  control trace_controls%ROWTYPE;
+BEGIN
+  IF TG_TABLE_NAME = 'trace_controls' THEN
+    PERFORM queue_notification('control:' || NEW.id, 'control', NEW.store_id, NEW.barcode, NEW.lot, NEW.actor, NULL, NEW.warehouse_id, true);
+  ELSIF TG_TABLE_NAME = 'trace_reviews' THEN
+    SELECT * INTO control FROM trace_controls WHERE id = NEW.control_id;
+    PERFORM queue_notification('review:' || NEW.control_id, 'control', control.store_id, control.barcode, control.lot,
+      NEW.actor, ARRAY[control.actor], control.warehouse_id, true);
+  ELSE
+    PERFORM queue_notification('trace:' || NEW.id, CASE WHEN NEW.kind = 'movement' THEN 'warehouse' ELSE 'operation' END,
+      NEW.store_id, NEW.barcode, NEW.lot, NEW.actor, NULL, NEW.warehouse_id, true);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION revoke_notification_account() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'trace_users' THEN
+    DELETE FROM notification_subscriptions WHERE account_source = 'trace' AND account = OLD.email;
+  ELSIF TG_OP = 'INSERT' THEN
+    DELETE FROM notification_subscriptions WHERE account_source = 'core' AND account = NEW.id;
+  ELSE
+    DELETE FROM notification_subscriptions WHERE account_source = 'core' AND account = OLD.id;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION notify_warehouse_assignment() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  assignment trace_warehouse_lots%ROWTYPE;
+  assignment_store text;
+BEGIN
+  assignment := CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  SELECT store_id INTO assignment_store FROM trace_warehouses WHERE id = assignment.warehouse_id;
+  PERFORM queue_notification('assignment:' || md5(jsonb_build_array(assignment.warehouse_id, assignment.barcode,
+    assignment.lot, TG_OP, txid_current())::text), 'warehouse', assignment_store, assignment.barcode, assignment.lot,
+    NULL, NULL, assignment.warehouse_id, true);
+  RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER notification_products AFTER INSERT OR UPDATE ON products FOR EACH ROW EXECUTE FUNCTION notify_product_change();
+CREATE OR REPLACE TRIGGER notification_controls AFTER INSERT ON trace_controls FOR EACH ROW EXECUTE FUNCTION notify_trace_change();
+CREATE OR REPLACE TRIGGER notification_reviews AFTER INSERT ON trace_reviews FOR EACH ROW EXECUTE FUNCTION notify_trace_change();
+CREATE OR REPLACE TRIGGER notification_trace_events AFTER INSERT ON trace_events FOR EACH ROW EXECUTE FUNCTION notify_trace_change();
+CREATE OR REPLACE TRIGGER notification_warehouse_assignments AFTER INSERT OR DELETE ON trace_warehouse_lots FOR EACH ROW EXECUTE FUNCTION notify_warehouse_assignment();
+CREATE OR REPLACE TRIGGER notification_core_accounts AFTER UPDATE OR DELETE ON accounts FOR EACH ROW EXECUTE FUNCTION revoke_notification_account();
+CREATE OR REPLACE TRIGGER notification_trace_accounts AFTER UPDATE OR DELETE ON trace_users FOR EACH ROW EXECUTE FUNCTION revoke_notification_account();
+CREATE OR REPLACE TRIGGER notification_password_overrides AFTER INSERT OR UPDATE OR DELETE ON account_password_overrides FOR EACH ROW EXECUTE FUNCTION revoke_notification_account();
+
 WITH legacy AS (
   SELECT p.id, COALESCE(p.store_id, 'pilot') AS store_id, p.barcode, p.lot, p.document->>'name' AS name,
     p.document->'proposal' AS proposal

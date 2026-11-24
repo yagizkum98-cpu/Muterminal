@@ -12,6 +12,7 @@ import { traceStages, type TraceControl, type TraceEvent, type TraceLot, type Tr
 import { traceChoices, traceRoles, warehouseChoice, type TraceAccess } from '../components/trace-policy';
 import TraceManagement from '../components/TraceManagement';
 import MobileNav, { type MobileSection } from '../components/MobileNav';
+import NotificationSettings from '../components/NotificationSettings';
 import styles from '../components/Trace.module.css';
 import { getSession } from '../server/application';
 import { resolveTraceAccess } from '../server/trace-access';
@@ -436,6 +437,7 @@ export default function Trace({ role, access, email, displayName, challenge, log
     </header>
     <main className={styles.wrap}>
       {access && <ChangePassword mobile={mobile} signIn={signInHref} />}
+      {access && access.role !== 'super' && <NotificationSettings panel={warehouseLogin ? 'depo' : 'trace'} mobile={mobile} />}
       <div className={styles.hero}>
         <h1>{access?.role === 'super' ? t("MU TRACE platform yönetimi") : t("Ürün izlenebilirliği")}</h1>
         <p>{access ? `${t(traceRoles[access.role])} · ${displayName ?? email}` : t("Barkoddan lota, ürün hareketlerinden kontrol ve onay geçmişine.")}</p>

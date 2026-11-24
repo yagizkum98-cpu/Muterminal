@@ -1,0 +1,14 @@
+.card { margin-block: 12px; border: 1px solid #d6e5dc; border-radius: 10px; background: #fff; color: #18352d; }
+.card summary { padding: 10px 12px; cursor: pointer; font-weight: 650; }
+.card summary span { margin-inline-start: 10px; color: #486558; font-size: .875rem; font-weight: 500; }
+.body { padding: 0 12px 12px; }
+.body p { margin: 4px 0 8px; }
+.body fieldset { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 0; border: 0; }
+.body label { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.body input { accent-color: #126847; }
+.body legend { font-size: .875rem; font-weight: 650; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions button { min-height: 40px; padding: 7px 12px; border: 1px solid #126847; border-radius: 7px; background: #126847; color: #fff; font: inherit; cursor: pointer; }
+.actions .secondary { background: #fff; color: #126847; }
+.actions button:disabled { opacity: .5; cursor: not-allowed; }
+.body .error { color: #a12020; }

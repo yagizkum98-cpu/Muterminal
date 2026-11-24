@@ -28,6 +28,34 @@ button.delete-product:hover { background: #fbe5e4; }
 .subdepartment-section { border-top: 1px solid #dce7e0; margin-top: 12px; padding-top: 12px; }
 .subdepartment-section h3 { margin: 0 0 8px; font-size: 1rem; }
 .subdepartment-section p { margin: 0; color: #486558; }
+.department-calendar, .department-report { border-top: 1px solid #dce7e0; margin-top: 12px; padding-top: 12px; }
+.department-calendar h3 { margin: 0 0 10px; font-size: 1rem; }
+.calendar-layout { display: grid; grid-template-columns: minmax(0, 21rem) minmax(0, 1fr); align-items: start; gap: 16px; }
+.calendar-month { min-width: 0; padding: 8px; border: 1px solid #dce7e0; border-radius: 10px; background: #f5faf7; }
+.calendar-navigation { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 6px; }
+.calendar-navigation strong { text-transform: capitalize; text-align: center; }
+.calendar-navigation button { min-width: 40px; padding: 4px; font-size: 1.4rem; }
+.calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.calendar-days > span { align-self: center; text-align: center; font-size: .75rem; color: #486558; }
+.calendar-days button { display: grid; place-content: center; min-height: 40px; padding: 2px; font-variant-numeric: tabular-nums; }
+.calendar-days button[data-events] { background: #e4f0e8; border-color: #b3d2bf; }
+.calendar-days button[aria-current="date"] { box-shadow: inset 0 0 0 1px #126847; font-weight: 700; }
+.calendar-days button[aria-pressed="true"], #calendar-all[aria-pressed="true"] { background: #124c39; color: #fff; }
+.calendar-days small { color: inherit; font-size: .68rem; line-height: 1; }
+.calendar-controls { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; }
+.calendar-controls label { display: grid; gap: 4px; margin: 0; font-size: .875rem; font-weight: 650; }
+.calendar-controls input { min-width: 0; }
+.calendar-agenda h4 { margin: 12px 0 4px; }
+.calendar-agenda p { margin: 0; color: #486558; }
+.calendar-agenda ul { list-style: none; padding: 0; margin: 4px 0 0; max-height: 20rem; overflow: auto; }
+.calendar-agenda li { display: grid; gap: 2px; padding: 8px 0; border-bottom: 1px solid #e7eee9; overflow-wrap: anywhere; }
+.calendar-agenda li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.calendar-agenda li time { flex: none; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .calendar-layout { grid-template-columns: minmax(0, 1fr); }
+}
+.department-report h3 { margin: 0 0 4px; font-size: 1rem; }
+.department-report > p { margin: 0; color: #486558; overflow-wrap: anywhere; }
 .managed-departments li + li { margin-top: 6px; }
 .department-assignment { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .management-form { border-top: 1px solid #dce7e0; margin-top: 18px; padding-top: 12px; }
@@ -44,7 +72,14 @@ input[type="checkbox"] { width: auto; }
 .decision-file-heading { background: #f2f8f4; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 12px; }
 .decision-file-heading h3 { margin: 0 0 4px; overflow-wrap: anywhere; }
 .decision-file table { min-width: 650px; }
-#rows tr:focus { outline: 2px solid #126847; outline-offset: -2px; }
+#records-table tr:focus { outline: 2px solid #126847; outline-offset: -2px; }
+.records-toolbar { align-items: flex-end; }
+.records-toolbar label { display: grid; gap: 4px; margin: 0; font-size: .875rem; font-weight: 650; }
+#records-all-dates[aria-pressed="true"] { background: #124c39; color: #fff; }
+.records-export-note { margin: 0 0 12px; color: #486558; font-size: .875rem; }
+#records-table .records-day th { background: #e4f0e8; color: #124c39; }
+#records-table .records-day small { margin-inline-start: 8px; font-weight: 500; }
+#records-table tbody tr:not(.records-day):nth-child(odd) { background: #f8fbf9; }
 .safety { border-left: 4px solid #ad7b24; padding-left: 10px; }
 .risk { display: block; margin-top: 6px; }
 .details { min-width: 180px; }

@@ -108,8 +108,16 @@ Android uygulaması APK olarak dağıtılır. Uygulama, sitenin `/mobil` ekranı
 
 4. İmzalı dosyayı `public/mobil/muterminal.apk` konumuna ekleyin ve `MUTERMINAL_ANDROID_APK_URL=/mobil/muterminal.apk` ayarını yapın. Harici sunucuda bir `.apk` HTTPS bağlantısı kullanıyorsanız dosyayı `Content-Disposition: attachment` başlığıyla sunun. Bu ayar ana sayfadaki indirme düğmesini etkinleştirir.
 
-Bağlantı kesildiğinde uygulama yeniden deneme ekranını gösterir. Ürün ve kişisel kayıtlar ile işlem yazma istekleri bağlantı gerektirir. Service worker yalnızca herkese açık bağlantı ekranını önbelleğe alır.
+Bağlantı kesildiğinde uygulama yeniden deneme ekranını gösterir. Ürün ve kişisel kayıtlar ile işlem yazma istekleri bağlantı gerektirir.
 
 Personel, kullanıcı adı ve şifresinden sonra kendisine atanmış mobil onay kodunu girer. Henüz kod atanmamışsa mobil çalışma alanı kilitli görünür. Firma admini ve mağaza yöneticisi doğrudan giriş yapabilir. **Yönetim → Personel mobil onay kodları** bölümünden kendi firma veya mağaza kapsamlarındaki CORE ve MU TRACE personeline kod oluşturabilirler.
 
 Yeni kod yalnızca oluşturulduğu anda görünür ve ilgili personele özel olarak iletilir. Kod yenilendiğinde veya mobil erişim kilitlendiğinde mevcut mobil oturumların onayı geçersiz olur.
+
+### Cihaz bildirimlerini devreye alma
+
+Bildirimler varsayılan olarak kapalıdır. Etkinleştirmek için HTTPS sunucusunda `MUTERMINAL_NOTIFICATIONS_ENABLED=true` ayarlayın. `yarn web-push generate-vapid-keys` ile bir kez oluşturduğunuz anahtarları `MUTERMINAL_VAPID_PUBLIC_KEY` ve `MUTERMINAL_VAPID_PRIVATE_KEY` olarak kaydedin. `MUTERMINAL_VAPID_SUBJECT` için yönetilen bir `mailto:` adresi kullanın. Özel anahtar yalnızca sunucuda ve gönderim sürecinde bulunmalıdır.
+
+Kuyruğu arka planda çalıştırmak için aynı veritabanı ve bildirim ayarlarıyla `yarn notifications:worker` çalıştırın. Sunucusuz barındırmada zamanlayıcıdan `GET /api/notifications/dispatch` çağırın ve `Authorization: Bearer <MUTERMINAL_NOTIFICATION_DISPATCH_TOKEN>` başlığını gönderin. Zamanlayıcının aralığı gönderim sıklığını belirler. SKT taraması Türkiye saatini ve Sistem Yönetimi’ndeki uyarı süresini kullanır.
+
+Kullanıcılar cihaz başına **Bildirimler → Bildirimleri aç** seçeneğini kullanır. Android APK için güncel imzalı sürüm ve Digital Asset Links eşleşmesi gerekir. iPhone ve iPad’de iOS/iPadOS 16.4 veya üzeri sürümde MuTerminal’i Ana Ekran’a ekleyip oradan açın. [Android TWA bildirim servisi](https://developer.chrome.com/docs/android/trusted-web-activity/android-browser-helper-migration) · [Apple Web Push desteği](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)

@@ -243,7 +243,12 @@ export async function findSession(token: string) {
 }
 
 export async function deleteSession(token: string) {
-  await query('DELETE FROM sessions WHERE token_hash = $1', [hashToken(token)]);
+  await ensureSchema();
+  const key = hashToken(token);
+  await transaction(async client => {
+    await client.query('DELETE FROM sessions WHERE token_hash = $1', [key]);
+    await client.query('DELETE FROM notification_subscriptions WHERE session_key = $1', [key]);
+  });
 }
 
 export async function revokeSessions(account: string) {

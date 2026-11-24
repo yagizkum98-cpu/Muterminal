@@ -33,8 +33,8 @@ function excelTextLines(text: string, width: number) {
 }
 
 function jsonReport(report: Report) {
-  const { title, language, sections } = report;
-  const data = { title, language, timeZone: reportTimeZone, sections: sections.map(section => ({
+  const { title, language, date, sections } = report;
+  const data = { title, language, timeZone: reportTimeZone, ...(date && { date }), sections: sections.map(section => ({
     key: section.key, title: section.title,
     rowCount: section.rows.length,
     columnOrder: section.columns.map(column => column.key),

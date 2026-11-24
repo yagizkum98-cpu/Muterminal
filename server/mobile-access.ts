@@ -7,7 +7,7 @@ type Source = 'core' | 'trace';
 type Session = { role: string; email: string; storeId: string; scope?: { role: string; tenantId: string | null }; mobileApproval?: string; canSwitchPanels?: boolean };
 export type MobileStaffState = 'allowed' | 'unassigned' | 'challenge';
 
-function staffKey(session: Session) {
+export function mobileStaffKey(session: Session) {
   if (session.canSwitchPanels) return null;
   if (session.role === 'staff') return { tenant: 'pilot', source: 'core' as const, email: session.email, store: session.storeId };
   if (session.role === 'trace' && session.scope?.role === 'staff' && session.scope.tenantId) {
@@ -17,7 +17,7 @@ function staffKey(session: Session) {
 }
 
 export async function mobileStaffState(session: Session): Promise<MobileStaffState> {
-  const key = staffKey(session);
+  const key = mobileStaffKey(session);
   if (!key) return 'allowed';
   const { rows: [assignment] } = await query<{ revision: string }>(`
     SELECT revision FROM trace_mobile_staff_codes
@@ -28,7 +28,7 @@ export async function mobileStaffState(session: Session): Promise<MobileStaffSta
 }
 
 export async function verifyMobileStaffCode(session: Session, token: string, input: string) {
-  const key = staffKey(session);
+  const key = mobileStaffKey(session);
   if (!key) return false;
   const code = input.trim().replaceAll(/[\s-]/g, '').toUpperCase();
   if (!/^[A-F0-9]{20}$/.test(code)) return false;
@@ -88,6 +88,7 @@ export async function manageMobileCode(access: TraceAccess, actor: string, body:
     } else {
       await client.query('DELETE FROM trace_mobile_staff_codes WHERE tenant_id = $1 AND source = $2 AND email = $3 AND store_id = $4', values);
     }
+    await client.query('DELETE FROM notification_subscriptions WHERE mobile AND account_source = $1 AND account = $2', [source, email]);
     await client.query('INSERT INTO trace_admin_audit (tenant_id, actor, action, target) VALUES ($1,$2,$3,$4)',
       [access.tenantId, actor, code ? 'Mobil onay kodu tanımlandı' : 'Mobil personel erişimi kilitlendi', `${email} · ${source}`]);
     return { code: code?.match(/.{4}/g)?.join('-') ?? null };

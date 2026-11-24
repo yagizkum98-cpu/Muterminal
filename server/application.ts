@@ -6,5 +6,6 @@ import * as traceAccess from './trace-access';
 import * as traceControls from './trace-controls';
 import * as mobileAccess from './mobile-access';
 import * as features from './features';
+import * as notifications from './notifications';
 
-export const { getSession, serveApi, ensurePilotAccounts } = createCore(database, challenge, features, trace, traceAccess, traceControls, mobileAccess);
+export const { getSession, serveApi, ensurePilotAccounts } = createCore(database, challenge, features, trace, traceAccess, traceControls, mobileAccess, notifications);

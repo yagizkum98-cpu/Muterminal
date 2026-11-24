@@ -2,7 +2,7 @@ const { createHash, randomBytes, scrypt, timingSafeEqual } = require('node:crypt
 const { promisify } = require('node:util');
 const { operations, saleApproval, assessments } = require('../operations.cjs');
 
-function createCore(database, challenge, { scanEnabled, testerEmail }, trace, traceAccess, traceControls, mobileAccess) {
+function createCore(database, challenge, { scanEnabled, testerEmail }, trace, traceAccess, traceControls, mobileAccess, notifications) {
   const { Table, newRecordId, createSession, findSession, deleteSession, revokeSessions, ensureSchema, transaction } = database;
   const { createChallenge, challengeImage, verifyChallenge, allowLoginRequest } = challenge;
   const records = new Table('products');
@@ -35,10 +35,10 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     receller: 'Reçeller',
   };
   const departmentMainNames = {
-    'kasa-reyon': 'Kasa Reyon',
+    'kasa-reyon': 'Kasa Reyonu',
     kasap: 'Kasap',
     sarkuteri: 'Şarküteri',
-    'meyve-sebze': 'Meyve Sebze',
+    'meyve-sebze': 'Meyve ve Sebze',
     'unlu-mamuller-reyon': 'Unlu Mamuller',
   };
   const staffJobTitles = {
@@ -230,6 +230,11 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
   async function serveApi(request, response, path) {
     try {
       const method = request.method;
+      if (path === '/api/notifications/dispatch' && (method === 'GET' || method === 'POST')) {
+        if (!notifications.authorizedDispatch(request.headers.authorization)) throw new RequestError(401, 'Yetkisiz istek.');
+        json(response, 200, await notifications.dispatchNotifications());
+        return;
+      }
       if (path === '/api/session/login' && method === 'POST') {
         requireSameOrigin(request);
         await adminLogin(request, response);
@@ -270,10 +275,11 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
         return;
       }
       const tracePath = path === '/api/trace' || path.startsWith('/api/trace/');
+      const notificationPath = path === '/api/notifications';
       const scanPath = path === '/api/scan' || path.startsWith('/api/scan/');
       const panel = request.headers['x-muterminal-panel'];
       const corePanel = typeof panel === 'string' && Object.hasOwn(panels, panel) ? panel : undefined;
-      const session = await getSession(request, tracePath ? panel === 'depo' ? 'depo' : 'trace'
+      const session = await getSession(request, tracePath || (notificationPath && ['trace', 'depo'].includes(panel)) ? panel === 'depo' ? 'depo' : 'trace'
         : scanPath ? 'staff' : corePanel);
       if (!session) throw new RequestError(401, 'MuTerminal paneline giriş yapın.');
       if (method === 'POST' || method === 'DELETE') requireSameOrigin(request);
@@ -289,6 +295,24 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
         new URL(request.url, 'http://localhost').searchParams.get('mobil') === '1';
       if (mobile && await mobileAccess.mobileStaffState(session) !== 'allowed') {
         throw new RequestError(403, 'Mobil personel erişimi için onay kodu gerekir.');
+      }
+      if (notificationPath) {
+        if (method === 'GET') {
+          json(response, 200, await notifications.deviceSettings(session, request.headers['x-muterminal-push-id'], sessionToken(request)));
+          return;
+        }
+        if (method === 'POST') {
+          if (!notifications.pushConfiguration()) throw new RequestError(503, 'Bildirimler şu anda kapalı.');
+          const saved = await notifications.saveDevice(session, sessionToken(request), await readJson(request), request.headers.cookie, mobile);
+          if (!saved) throw new RequestError(400, 'Geçerli bir cihaz aboneliği veya bildirim türü seçin.');
+          response.writeHead(204).end();
+          return;
+        }
+        if (method === 'DELETE') {
+          await notifications.removeDevice(session, request.headers['x-muterminal-push-id']);
+          response.writeHead(204).end();
+          return;
+        }
       }
       if (method === 'POST' && (path === '/api/session/password' ||
           (path === '/api/manager/password' && session.role === 'manager'))) {

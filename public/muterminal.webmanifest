@@ -1,0 +1,11 @@
+{
+  "id": "/mobil",
+  "name": "MuTerminal",
+  "short_name": "MuTerminal",
+  "start_url": "/mobil",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#12372d",
+  "background_color": "#f3f6f5",
+  "icons": [{ "src": "/muterminal-app-icon.png", "sizes": "512x512", "type": "image/png" }]
+}

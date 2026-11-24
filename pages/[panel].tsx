@@ -1,6 +1,7 @@
 import LanguagePicker, { useTranslate } from '../components/LanguagePicker';
 import ChangePassword from '../components/ChangePassword';
 import ReportDownload from '../components/ReportDownload';
+import NotificationSettings from '../components/NotificationSettings';
 import { languageFromCookie } from '../lib/language';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
@@ -47,6 +48,7 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
   </header>
   <main id="core-panel" data-panel={role} data-mobile={mobile ? '1' : '0'}>
     <ChangePassword mobile={mobile} signIn={`/?panel=${role}&password=changed${mobile ? '&mobil=1' : ''}#admin-giris`} />
+    <NotificationSettings panel={role} mobile={mobile} />
     {mobile && <p><a className="scan-link" href="/mobil">{t("Mobil ana ekran")}</a></p>}
     <p><a className="scan-link" href={mobile ? '/trace?mobil=1' : '/trace'}>{t("MU TRACE · Ürün izlenebilirliği")}</a></p>
     {canSwitchPanels && <nav className="modules" aria-label={t("Panel girişleri")}>
@@ -77,6 +79,34 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
         <h3 id="subdepartments-title">{t("Alt reyonlar")}</h3>
         <nav id="subdepartments" className="modules" aria-labelledby="subdepartments-title"></nav>
         <p id="subdepartments-empty" hidden>{t("Alt reyonlar daha sonra tanımlanacak.")}</p>
+      </div>
+      <div className="department-calendar" role="group" aria-labelledby="department-calendar-title">
+        <h3 id="department-calendar-title">{t('Reyon takvimi')}</h3>
+        <div className="calendar-layout">
+          <div className="calendar-month">
+            <div className="calendar-navigation">
+              <button id="calendar-previous" type="button" className="secondary" aria-label={t('Önceki ay')}>‹</button>
+              <strong id="calendar-month" role="status"></strong>
+              <button id="calendar-next" type="button" className="secondary" aria-label={t('Sonraki ay')}>›</button>
+            </div>
+            <div id="calendar-days" className="calendar-days"></div>
+          </div>
+          <div className="calendar-agenda">
+            <div className="calendar-controls">
+              <label htmlFor="calendar-date">{t('Güne git')}<input id="calendar-date" type="date" min="0001-01-01" max="9999-12-31" /></label>
+              <button id="calendar-today" type="button" className="secondary">{t('Bugün')}</button>
+              <button id="calendar-all" type="button" className="secondary" aria-pressed="true">{t('Tüm tarihler')}</button>
+            </div>
+            <h4 id="calendar-agenda-title" aria-live="polite">{t('Günlük kayıtlar')}</h4>
+            <p id="calendar-agenda-status">{t('Kayıtları görmek için bir gün seçin.')}</p>
+            <ul id="calendar-agenda" aria-labelledby="calendar-agenda-title" hidden></ul>
+          </div>
+        </div>
+      </div>
+      <div className="department-report" role="group" aria-labelledby="department-report-title" aria-describedby="department-report-scope">
+        <h3 id="department-report-title">{t('Reyon raporu')}</h3>
+        <p id="department-report-scope"></p>
+        <ReportDownload core="department" />
       </div>
     </section>
     <p id="sync-status" role="status">{t("Kayıtlar yükleniyor…")}</p>
@@ -208,16 +238,19 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
         <p id="product-status" className="status" role="status"></p>
       </form>
     </section>
-    <section id="records-panel" hidden>
-      <h2>{t("Operasyon kayıtları")}</h2>
-      <div className="toolbar">
-        <input id="search" placeholder={t("Ürün, barkod, lot ara")} aria-label={t("Ürün, barkod, lot ara")} />
+    <section id="records-panel" aria-labelledby="records-title" hidden>
+      <h2 id="records-title">{t("Operasyon kayıtları")}</h2>
+      <div className="toolbar records-toolbar">
+        <input id="search" type="search" placeholder={t("Ürün, barkod veya lot ara")} aria-label={t("Ürün, barkod veya lot ara")} />
+        <label htmlFor="records-date">{t('Kayıt tarihi')}<input id="records-date" type="date" min="0001-01-01" max="9999-12-31" /></label>
+        <button id="records-all-dates" type="button" className="secondary" aria-pressed="true">{t('Tüm tarihler')}</button>
       </div>
       <p id="records-status" className="status" role="status"></p>
+      <ReportDownload core="operation" />
+      {role === 'staff' && <p className="records-export-note">{t('Yalnızca kendi oluşturduğunuz kayıtları indirebilirsiniz.')}</p>}
       <div className="scroll">
-        <table>
-          <thead><tr><th>{t("Ürün")}</th><th>{t("Barkod / Lot")}</th><th id="quantity-column">{t("Adet")}</th><th>{t("Operasyon bilgisi")}</th><th>{t("Durum ve risk")}</th><th>{t("İşlem")}</th></tr></thead>
-          <tbody id="rows"></tbody>
+        <table id="records-table" aria-labelledby="records-title">
+          <thead><tr><th scope="col">{t("Ürün")}</th><th scope="col">{t("Barkod / Lot")}</th><th scope="col" id="quantity-column">{t("Adet")}</th><th scope="col">{t("Operasyon bilgisi")}</th><th scope="col">{t("Durum ve risk")}</th><th scope="col">{t("İşlem")}</th></tr></thead>
         </table>
       </div>
     </section>
