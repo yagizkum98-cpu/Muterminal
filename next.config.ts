@@ -2,6 +2,15 @@ import type { NextConfig } from 'next';
 
 const config: NextConfig = {
   poweredByHeader: false,
+  async headers() {
+    return [{
+      source: '/mobil/muterminal.apk',
+      headers: [
+        { key: 'Content-Type', value: 'application/vnd.android.package-archive' },
+        { key: 'Content-Disposition', value: 'attachment; filename="muterminal.apk"' },
+      ],
+    }];
+  },
   async redirects() {
     return [{ source: '/index.html', destination: '/', permanent: false }];
   },

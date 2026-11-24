@@ -57,14 +57,22 @@ function inDepartment(record) {
   return departmentCatalog.get(record.department)?.group.id === activeDepartmentGroup;
 }
 
+function rawStoreName(id) {
+  return panel.stores.find(store => store.id === id)?.name ?? id;
+}
+
 function storeName(id) {
-  return t(panel.stores.find(store => store.id === id)?.name ?? id);
+  return t(rawStoreName(id));
+}
+
+function departmentNames(department) {
+  const item = departmentCatalog.get(department);
+  if (!item) return ['Reyon atanmamış'];
+  return item.id === item.group.id ? [item.name] : [item.group.name, item.name];
 }
 
 function departmentLabel(department) {
-  const item = departmentCatalog.get(department);
-  if (!item) return t('Reyon atanmamış');
-  return item.id === item.group.id ? t(item.name) : `${t(item.group.name)} · ${t(item.name)}`;
+  return departmentNames(department).map(name => t(name)).join(' · ');
 }
 
 function departmentOptions() {
@@ -231,11 +239,11 @@ function renderRows() {
     </tr>`).join('') || ("<tr><td colspan=\"6\">" + escapeHtml(t("Kayıt bulunamadı")) + "</td></tr>");
 }
 
-function renderHistory() {
+function historyRows() {
   const query = $('history-search').value.trim().toLocaleLowerCase('tr');
   const date = $('history-date').value;
   const operation = $('history-operation').value;
-  const matching = logs.filter(log => (
+  return logs.filter(log => (
     inDepartment(log) &&
     (!lotFilter || (log.storeId === lotFilter.storeId && log.code === lotFilter.code && log.lot === lotFilter.lot)) &&
     (!operation || log.type === operation) &&
@@ -243,11 +251,14 @@ function renderHistory() {
     [log.name, log.code, log.lot, log.staff, log.actor, log.choice, log.reason, log.result, log.destination]
       .join(' ').toLocaleLowerCase('tr').includes(query)
   ));
-  $('history').innerHTML = matching.map(log => `
+}
+
+function renderHistory() {
+  $('history').innerHTML = historyRows().map(log => `
     <tr>
       <td>${escapeHtml(dateFormat.format(new Date(log.time)))}</td>
       <td>${escapeHtml(log.name)}<br><small>${escapeHtml(storeName(log.storeId))} · ${escapeHtml(log.code)} · ${escapeHtml(log.lot)} · ${escapeHtml(departmentLabel(log.department))}</small></td>
-      <td>${escapeHtml(t(operations[log.type].title))}</td>
+      <td>${escapeHtml(t(operations[log.type]?.title ?? log.type))}</td>
       <td>${escapeHtml(log.staff)}${log.actor ? `<br><small>${escapeHtml(log.actor)}</small>` : ''}</td>
       <td>${log.kind === 'assessment' ? '<small>MuDecision</small><br>' : ''}${escapeHtml(t(log.choice))}<br><small>${escapeHtml(log.reason)}</small></td>
       <td>${escapeHtml(t(log.result))}${log.destination ? `<br><small>${escapeHtml(log.destination)}</small>` : ''}</td>
@@ -258,25 +269,27 @@ function reportRows() {
   const byStore = panel.role === 'admin';
   const groups = new Map();
   const getGroup = key => {
-    if (!groups.has(key)) groups.set(key, { name: byStore ? storeName(key) : key, entries: 0, decisions: 0, pending: 0 });
+    if (!groups.has(key)) groups.set(key, { name: byStore ? rawStoreName(key) : key, entries: 0, decisions: 0, pending: 0 });
     return groups.get(key);
   };
   if (byStore) for (const store of panel.stores) if (!activeStore || store.id === activeStore) getGroup(store.id);
   for (const product of products.filter(inDepartment)) {
-    getGroup(byStore ? product.storeId : (product.createdBy || 'Önceki kayıtlar')).entries++;
+    getGroup(byStore ? product.storeId : (product.createdBy || null)).entries++;
     if (product.proposal) getGroup(byStore ? product.storeId : product.proposal.actor).pending++;
-    else if (product.status === 'Onay bekliyor') getGroup(byStore ? product.storeId : (product.createdBy || 'Önceki kayıtlar')).pending++;
+    else if (product.status === 'Onay bekliyor') getGroup(byStore ? product.storeId : (product.createdBy || null)).pending++;
   }
   for (const log of logs.filter(inDepartment)) {
-    if (log.choice !== 'Kontrol kaydı oluşturuldu') getGroup(byStore ? log.storeId : (log.actor || log.staff)).decisions++;
+    if (log.choice !== 'Kontrol kaydı oluşturuldu') getGroup(byStore ? log.storeId : (log.actor || log.staff || null)).decisions++;
   }
-  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+  return [...groups.values()];
 }
 
 function renderDashboard() {
   $('report-group').textContent = panel.role === 'admin' ? t("Mağaza") : t("Personel");
   $('report-title').textContent = panel.role === 'admin' ? t("Mağaza raporları") : t("Personel performansı");
-  $('report-rows').innerHTML = reportRows().map(row => `
+  const rows = reportRows().map(row => ({ ...row, name: t(row.name ?? 'Önceki kayıtlar') }));
+  rows.sort((a, b) => a.name.localeCompare(b.name, english ? 'en' : 'tr'));
+  $('report-rows').innerHTML = rows.map(row => `
     <tr><th scope="row">${escapeHtml(row.name)}</th><td>${row.entries}</td><td>${row.decisions}</td><td>${row.pending}</td></tr>`
   ).join('') || ("<tr><td colspan=\"4\">" + escapeHtml(t("Henüz raporlanacak işlem yok.")) + "</td></tr>");
   const pending = products.filter(product => inDepartment(product) && (product.proposal || product.status === 'Onay bekliyor'));
@@ -552,12 +565,14 @@ async function refresh() {
     }
     showStatus('sync-status', '');
     $('export').disabled = false;
-    $('download-report').disabled = false;
+    $('report-export-summary').disabled = false;
+    $('report-export-history').disabled = false;
   } catch {
     if (id !== refreshId) return;
     showStatus('sync-status', 'Kayıtlar güncellenemedi. MuTerminal sunucusunu ve PostgreSQL bağlantısını kontrol edin.', true);
     $('export').disabled = true;
-    $('download-report').disabled = true;
+    $('report-export-summary').disabled = true;
+    $('report-export-history').disabled = true;
   }
 }
 
@@ -937,7 +952,19 @@ $('export').addEventListener('click', () => {
   const scope = activeDepartment || activeDepartmentGroup;
   downloadJson({ products: visible, logs: logs.filter(inDepartment) }, scope ? `muterminal-${scope}-kayitlar.json` : 'muterminal-kayitlar.json');
 });
-$('download-report').addEventListener('click', () => downloadJson(reportRows(), 'muterminal-operasyon-raporu.json'));
+$('core-panel').addEventListener('muterminal:report-data', event => {
+  const { kind } = event.detail;
+  if ($(`report-export-${kind}`)?.disabled || !lastState) return;
+  if (kind === 'summary' && panel.role !== 'staff') {
+    event.detail.data = { kind, byStore: panel.role === 'admin', rows: reportRows() };
+  }
+  if (kind === 'history') {
+    event.detail.data = { kind, rows: historyRows().map(log => ({
+      ...log, store: rawStoreName(log.storeId), department: departmentNames(log.department),
+      operation: operations[log.type]?.title ?? log.type,
+    })) };
+  }
+});
 
 async function poll() {
   await refresh();
@@ -966,7 +993,7 @@ async function start() {
     $('store-filter-field').hidden = panel.role !== 'admin';
     configureStores();
     const options = Object.entries(operations);
-    if (panel.role !== 'staff') $('modules').insertAdjacentHTML('afterbegin', '<button type="button" data-module="dashboard">Dashboard</button>');
+    if (panel.role !== 'staff') $('modules').insertAdjacentHTML('afterbegin', `<button type="button" data-module="dashboard">${escapeHtml(t('Operasyon panosu'))}</button>`);
     $('modules').insertAdjacentHTML('beforeend', options.map(([id, operation]) => (
       `<button type="button" data-module="${escapeHtml(id)}">${escapeHtml(t(operation.title))}</button>`
     )).join('') + `<button type="button" data-module="history">${panel.role === 'staff' ? t("Kendi İşlem Geçmişim") : t("Karar Geçmişi")}</button>`);

@@ -1,0 +1,36 @@
+import groovy.json.JsonOutput
+
+plugins {
+    id 'com.android.application' version '8.13.2'
+}
+
+def configuredOrigin = providers.environmentVariable('MUTERMINAL_PUBLIC_ORIGIN').orNull?.trim()
+def origin = new URI(configuredOrigin ?: '')
+if (origin.scheme != 'https' || !origin.host || origin.userInfo || origin.rawQuery != null ||
+        origin.rawFragment != null || !(origin.rawPath in ['', '/'])) {
+    throw new GradleException('Set MUTERMINAL_PUBLIC_ORIGIN to the HTTPS origin of the MuTerminal site.')
+}
+def site = "https://${origin.rawAuthority}".toString()
+def assetStatements = JsonOutput.toJson([[
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: [namespace: 'web', site: site],
+]])
+
+android {
+    namespace 'com.muterminal.mobile'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.muterminal.mobile'
+        minSdk 24
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+        manifestPlaceholders = [launchUrl: "${site}/mobil".toString()]
+        resValue 'string', 'asset_statements', assetStatements.replace('"', '\\"')
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.4'
+}

@@ -28,19 +28,16 @@
 }
 .hero h1 { font-size: clamp(1.9rem, 7vw, 2.8rem); line-height: 1.1; letter-spacing: -.045em; margin: 0; }
 .hero p { color: #d9eadf; max-width: 36ch; margin: 9px 0 20px; overflow-wrap: anywhere; }
-.primary, .installButton {
+.primary, .approvalButton {
   display: inline-flex; align-items: center; justify-content: center; min-height: 48px; border: 0;
   font: 750 .95rem system-ui, sans-serif; border-radius: 9px; padding: 8px 14px; cursor: pointer; text-decoration: none;
 }
 .primary { background: #b8f37e; color: #162b21; }
-.installButton { background: #075d48; color: white; margin-top: 8px; }
+.approvalButton { background: #075d48; color: white; margin-top: 8px; }
 .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
 .tiles a { display: grid; align-content: start; gap: 4px; padding: 14px; color: #14382d; text-decoration: none; background: white; border: 1px solid #d5e0d7; border-radius: 13px; min-height: 98px; }
 .tiles a:last-child:nth-child(odd) { grid-column: 1 / -1; }
-.tiles span, .install p { color: #495e56; font-size: .88rem; }
-.install { padding: 12px 14px; margin: 14px 0 0; background: white; border: 1px solid #d5e0d7; border-radius: 13px; }
-.install summary { color: #075d48; font-weight: 700; min-height: 34px; align-content: center; cursor: pointer; }
-.install p { margin: 4px 0 0; }
+.tiles span { color: #495e56; font-size: .88rem; }
 .notice { padding: 10px 12px; background: #fff2d4; border-radius: 8px; color: #69430b; }
 .approval { margin-top: 18px; padding: 20px; background: white; border: 1px solid #d5e0d7; border-radius: 16px; }
 .approval h1 { margin: 0; line-height: 1.2; font-size: clamp(1.55rem, 6vw, 2rem); }

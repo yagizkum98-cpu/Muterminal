@@ -1,5 +1,8 @@
 import LanguagePicker, { useLanguage, useTranslate } from '../../components/LanguagePicker';
+import ReportDownload from '../../components/ReportDownload';
+import ReportTable from '../../components/ReportTable';
 import { languageFromCookie } from '../../lib/language';
+import { scanReport, type ScanActivity } from '../../lib/report-data';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
@@ -18,17 +21,11 @@ interface Product {
 
 interface Lookup { products: Product[]; today: string }
 interface Check { expiryDate: string; unreadable: boolean; rks: string; packaging: string; quantity: string }
-interface RequestRow {
-  requestId: string; name: string; barcode: string; lot: string; choice: string;
-  status: 'pending' | 'approved' | 'rejected'; time: string; reason: string; reviewReason: string | null;
-}
-interface History { pending: RequestRow[]; history: RequestRow[] }
 
 const steps = ['Barkod', 'Ürün', 'Kontrol', 'Karar', 'Onay'];
 const emptyCheck: Check = { expiryDate: '', unreadable: false, rks: '', packaging: '', quantity: '' };
 const saleApproval = 'Satılabilir (ön onay)';
 const guardedChoices = new Set([saleApproval, 'Cross-Dock Uygun']);
-const requestStatus = { pending: 'Onay bekliyor', approved: 'Onaylandı', rejected: 'Reddedildi' };
 const rksOptions = { clear: 'Kontrol edildi, blokaj görülmedi', blocked: 'Blokaj görüldü', unknown: 'Doğrulanamadı' };
 const packagingOptions = { intact: 'Sağlam', damaged: 'Hasarlı', unknown: 'Kontrol edilemedi' };
 
@@ -67,8 +64,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export default function StaffScan({ staff, initialBarcode, initialLot, mobile }: Props) {
   const t = useTranslate();
-  const locale = useLanguage() === 'en' ? 'en-GB' : 'tr-TR';
-  const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' });
+  const language = useLanguage();
+  const locale = language === 'en' ? 'en-GB' : 'tr-TR';
   const formatDate = (date: string | null) => date
     ? new Intl.DateTimeFormat(locale, { timeZone: 'UTC' }).format(new Date(date)) : t('Kayıt yok');
   const [step, setStep] = useState(0);
@@ -81,7 +78,7 @@ export default function StaffScan({ staff, initialBarcode, initialLot, mobile }:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
-  const [activity, setActivity] = useState<History | null>(null);
+  const [activity, setActivity] = useState<ScanActivity | null>(null);
   const product = lookup?.products.find(item => item.id === productId);
   const canSuggestSale = Boolean(product && lookup && !product.rksBlocked && !product.expired && !check.unreadable &&
     check.expiryDate >= lookup.today && (!product.expiryDate || product.expiryDate === check.expiryDate) &&
@@ -94,7 +91,7 @@ export default function StaffScan({ staff, initialBarcode, initialLot, mobile }:
     let timer: number;
     async function refresh() {
       try {
-        const items = await request<History>('/api/scan/history');
+        const items = await request<ScanActivity>('/api/scan/history');
         if (active) { setActivity(items); setHistoryError(''); }
       } catch {
         if (active) setHistoryError('İşlem geçmişi şu anda yüklenemiyor.');
@@ -272,15 +269,11 @@ export default function StaffScan({ staff, initialBarcode, initialLot, mobile }:
         <h2 id="scan-history-title">{t("İşlem geçmişim")}</h2>
         {historyError && <p className={styles.error} role="status">{t(historyError)}</p>}
         {activity ? <>
-          <p className={styles.count}><strong>{activity.pending.length}</strong>{" " + t("yönetici onayı bekliyor")}</p>
-          {activity.history.length ? <ul>
-            {activity.history.map(item => <li key={item.requestId}>
-              <div><strong>{item.name}</strong><small>{t("Lot") + " "}{item.lot}</small></div>
-              <span data-status={item.status} className={styles.badge}>{t(requestStatus[item.status])}</span>
-              <p>{t(item.choice)} · {item.reason}</p>{item.reviewReason && <p>{t("Yönetici gerekçesi:") + " "}{item.reviewReason}</p>}
-              <time dateTime={item.time}>{dateTime.format(new Date(item.time))}</time>
-            </li>)}
-          </ul> : <p>{t("Henüz gönderilmiş kontrol yok.")}</p>}
+          <ReportDownload getReport={language => scanReport(activity, language)} />
+          {scanReport(activity, language).sections.map(section => <div key={section.key}>
+            <h3 id={`scan-report-${section.key}`}>{section.title}</h3>
+            <ReportTable section={section} labelledBy={`scan-report-${section.key}`} />
+          </div>)}
         </> : <p>{t(historyError ? 'Yeniden deneniyor…' : 'Kayıtlar yükleniyor…')}</p>}
       </section>
     </main>

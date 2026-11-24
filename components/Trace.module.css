@@ -96,10 +96,7 @@
 .operation:last-child { padding-bottom: 0; }
 .operation .details { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .tag { border-radius: 20px; padding: 3px 8px; background: var(--pale); color: var(--green); font-size: .75rem; font-weight: 650; }
-.report { display: grid; gap: 16px; }
-.tableScroll { overflow-x: auto; }
-.tableScroll table { border-collapse: collapse; width: 100%; text-align: left; font-size: .9rem; white-space: nowrap; }
-.tableScroll th, .tableScroll td { padding: 10px 9px; border-bottom: 1px solid var(--line); }
+.report { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .resultList { padding: 0; list-style: none; margin: 0; }
 .resultList li { padding-top: 8px; border-top: 1px solid var(--line); }
 .resultList p { color: var(--muted); margin: 0 0 9px; font-size: .9rem; }

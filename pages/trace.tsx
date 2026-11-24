@@ -1,5 +1,8 @@
 import LanguagePicker, { useLanguage, useTranslate } from '../components/LanguagePicker';
 import ChangePassword from '../components/ChangePassword';
+import ReportDownload from '../components/ReportDownload';
+import ReportTable from '../components/ReportTable';
+import { traceReport } from '../lib/report-data';
 import { languageFromCookie } from '../lib/language';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { GetServerSideProps } from 'next';
@@ -304,59 +307,24 @@ function Timeline({ lot }: { lot: TraceLot }) {
 }
 
 function Reporting({ report, openLot }: { report: TraceReport | PersonalReport; openLot: (barcode: string, lot: string, store: string) => void }) {
-  const t = useTranslate();
-  const timeText = useTimeText();
-  if ('personal' in report) return <section className={styles.card} aria-labelledby="personal-report">
-    <h2 id="personal-report">{t("Kontrol özetim")}</h2>
-    <dl className={styles.details}>
-      <div><dt>{t("Kontrol")}</dt><dd>{report.personal.controls}</dd></div>
-      <div><dt>{t("İncelenen")}</dt><dd>{report.personal.reviewed}</dd></div>
-      <div><dt>{t("Onay bekleyen")}</dt><dd>{report.personal.pending}</dd></div>
-    </dl>
-  </section>;
-  const storeName = (id: string) => Object.hasOwn(report.locations, id) ? t(report.locations[id]) : id;
-  function download() {
-    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = t('mu-trace-rapor.json');
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
+  const language = useLanguage();
+  const reportDocument = traceReport(report, language);
+  const lotRows: Partial<Record<string, Pick<TraceLot, 'barcode' | 'lot' | 'storeId'>[]>> = 'personal' in report ? {} : {
+    pending: report.pending, recalls: report.recalls, risks: report.risks,
+  };
   return <div className={styles.report}>
-    <section className={styles.card} aria-labelledby="report-title">
-      <div className={styles.row}><h2 id="report-title">{t("Mağaza bazında operasyon özeti")}</h2><button className={styles.secondary} onClick={download}>{t("JSON indir")}</button></div>
-      {report.stores.length ? <div className={styles.tableScroll}><table>
-        <thead><tr><th>{t("Mağaza")}</th><th>{t("Lot")}</th><th>{t("Operasyon")}</th><th>{t("Karar / talep")}</th><th>{t("Onay bekleyen")}</th><th>{t("Hareket")}</th><th>{t("Açık geri çağırma")}</th></tr></thead>
-        <tbody>{report.stores.map(store => <tr key={store.storeId}>
-          <th scope="row">{storeName(store.storeId)}</th><td>{store.lots}</td><td>{store.operations}</td><td>{store.decisions}</td>
-          <td>{store.pending}</td><td>{store.movements}</td><td>{store.openRecalls}</td>
-        </tr>)}</tbody>
-      </table></div> : <p>{t("Raporlanacak kayıt bulunamadı.")}</p>}
-    </section>
-    <section className={styles.card} aria-labelledby="pending-reviews">
-      <h2 id="pending-reviews">{t("Onay bekleyen talepler")}</h2>
-      {report.pending.length ? <ul className={styles.resultList}>{report.pending.map(item => <li key={item.id}>
-        <button className={styles.linkButton} onClick={() => openLot(item.barcode, item.lot, item.storeId)}>{item.name} · {item.lot}</button>
-        <p>{storeName(item.storeId)} · {t(item.choice)} · {timeText(item.time)}</p>
-      </li>)}</ul> : <p>{t("Onay bekleyen talep bulunmuyor.")}</p>}
-      {report.pending.length === 100 && <p className={styles.muted}>{t("Son 100 talep gösteriliyor.")}</p>}
-    </section>
-    <section className={styles.card} aria-labelledby="open-recalls">
-      <h2 id="open-recalls">{t("Açık geri çağırmalar")}</h2>
-      {report.recalls.length ? <ul className={styles.resultList}>{report.recalls.map(recall => <li key={recall.id}>
-        <button className={styles.linkButton} onClick={() => openLot(recall.barcode, recall.lot, recall.storeId)}>{recall.name} · {recall.lot}</button>
-        <p>{storeName(recall.storeId)} · {timeText(recall.time)} · {recall.note}</p>
-      </li>)}</ul> : <p>{t("Açık geri çağırma bulunmuyor.")}</p>}
-    </section>
-    <section className={styles.card} aria-labelledby="risk-lots">
-      <h2 id="risk-lots">{t("Kontrol gerektiren lotlar")}</h2>
-      {report.risks.length ? <ul className={styles.resultList}>{report.risks.map(lot => <li key={JSON.stringify(lot)}>
-        <button className={styles.linkButton} onClick={() => openLot(lot.barcode, lot.lot, lot.storeId)}>{lot.name} · {lot.lot}</button>
-        <p>{storeName(lot.storeId)} · {t(lot.risk)}</p>
-      </li>)}</ul> : <p>{t("SKT uyarısı veya blokaj bulunan lot yok.")}</p>}
-      {report.risks.length === 100 && <p className={styles.muted}>{t("İlk 100 risk kaydı gösteriliyor.")}</p>}
-    </section>
+    {reportDocument.sections.map((section, index) => {
+      const id = `report-${section.key}`;
+      return <section key={section.key} className={styles.card} aria-labelledby={id}>
+        <h2 id={id}>{section.title}</h2>
+        {index === 0 && <ReportDownload getReport={language => traceReport(report, language)} />}
+        <ReportTable section={section} labelledBy={id} renderCell={(value, column, row) => {
+          const lot = lotRows[section.key]?.[row];
+          if (column !== 'product' || !lot) return;
+          return <button type="button" className={styles.linkButton} onClick={() => openLot(lot.barcode, lot.lot, lot.storeId)}>{value ?? lot.barcode}</button>;
+        }} />
+      </section>;
+    })}
   </div>;
 }
 

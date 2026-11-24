@@ -31,7 +31,7 @@ Yeni personel hesaplarında dört iş unvanından biri seçilir. Yönetici **Per
 
 ## Operasyon modülleri
 
-**MuScan** geliştirme aşamasındadır. Pilot tester hesabı ekranı ve API'yi test edebilir. Prosedürler tamamlanıp açılış onayı verildiğinde sunucu ortamında `MUTERMINAL_SCAN_ENABLED=true` ile personel erişimi etkinleştirilebilir. Mevcut kontrol kayıtları Core işlem geçmişinde saklanır.
+**MuScan** geliştirme aşamasındadır. Pilot tester hesabı ekranı ve API'yi test edebilir. Prosedürler tamamlanıp açılış onayı verildiğinde sunucu ortamında `MUTERMINAL_SCAN_ENABLED=true` ile personel erişimi etkinleştirilebilir. Mevcut kontrol kayıtları Core işlem geçmişinde saklanır. Scan işlem geçmişindeki bekleyen ve sonuçlanan talepler, Türkçe veya İngilizce PDF, Excel ve JSON olarak indirilebilir.
 
 Ürün kaydederken ana reyon veya alt reyon seçilir. **Kasa Reyon**, **Kasap**, **Şarküteri**, **Meyve Sebze** ve **Unlu Mamuller** ana reyonları Core kayıtlarını, MuDecision dosyalarını ve karar geçmişini filtreler. Kasa Reyon altında 22 hazır alt reyon bulunur. Admin, **Sistem Yönetimi → Reyon tanımları** bölümünden ana reyonlara yeni alt seçenekler ekleyebilir. Eski reyon kimlikleri aynı şekilde kullanılır. Reyon bilgisi bulunmayan kayıtlar **Reyon atanmamış** altında görünür ve Core listesinden ilgili reyona atanabilir.
 
@@ -45,7 +45,7 @@ Core ve MuDecision listelerinde **🗑️ Sil** düğmesi, onaydan sonra seçile
 - **Depo Fark · MuDifference** — Sistem stoku ile fiziksel sayım karşılaştırması, düzeltme talebi ve onay veya ret.
 - **Cross-Dock · MuDock** — Sevkiyata uygunluk değerlendirmesi ve uygun lot için varış noktası.
 - **MuDecision** — Core kayıtlarını barkod ve lot bazında canlı karar dosyalarında toplar. Operasyon kaydına ve lot geçmişine doğrudan geçilebilir. Satılabilirlik ön onayı, inceleme, depo iadesi ve Cross-Dock uygunluğu değerlendirmeleri karar gerekçesiyle kaydedilir. Cross-Dock uygunluğu için aynı operasyon kaydının sevkiyata uygun durumda olması ve lotta açık engel bulunmaması gerekir.
-- **Karar Geçmişi · MuLog** — Ürün ve lot bazında tarih, beyan edilen personel, gerekçe ve sonuç. Tarih ve operasyon filtresi, arama ve JSON dışa aktarımı.
+- **Karar Geçmişi · MuLog** — Ürün ve lot bazında tarih, beyan edilen personel, gerekçe ve sonuç. Filtrelenen kararlar Türkçe veya İngilizce PDF, Excel ve JSON raporu olarak indirilebilir. Ham kayıtların JSON dışa aktarımı da kullanılabilir.
 
 Operasyon kararları ve satılabilirlik değerlendirmeleri gerekçeleriyle PostgreSQL’de saklanır. Değişiklikler açık sekmelerde otomatik güncellenir. Eski kayıtların eksik operasyon alanları **Bilgileri tamamla** ile doldurulabilir. Önceki kararlar geçmişte saklanır.
 
@@ -62,7 +62,7 @@ Ana sayfadaki veya paneldeki **MU TRACE** bağlantısından `/trace` ekranını 
 - MU TRACE kontrolü kullanıcı, ürün, konum, zaman, RKS/SKT, fiziksel sonuç, öneri ve gerekçeyi içerir. Yetkili ve farklı bir kullanıcı gerekçeyle onaylar, reddeder veya ek kontrol ister. Talep sahibi ek kontrolü önceki kayda bağlar. Kontroller ve incelemeler ayrı PostgreSQL kayıtlarıdır.
 - Önceki sürümden bekleyen MU TRACE talepleri yeni kuyruğa alınır. Özgün öneri geçmişte görünür, eski satış ön onayı önerileri inceleme talebi olarak devam eder.
 - Geri çağırma yetkisi olan kullanıcı kaydı mağaza, barkod ve lot için gerekçeyle açıp kapatır. Satışa açma yetkili kaynak sistem ve ilgili kalite kontrollerinde doğrulanır. MU TRACE onayı operasyon kararını kaydeder.
-- Personel kendi kontrol özetini görür. Diğer operasyon ve denetim rolleri kapsamlarına göre bekleyen talepleri, riskli lotları, hareketleri ve açık geri çağırmaları raporlar. Bu rapor JSON olarak indirilebilir.
+- Personel kendi kontrol özetini görür. Diğer operasyon ve denetim rolleri kapsamlarına göre bekleyen talepleri, riskli lotları, hareketleri ve açık geri çağırmaları raporlar. Raporlar Türkçe veya İngilizce PDF, Excel ve JSON olarak indirilebilir.
 
 ### MU TRACE rolleri
 
@@ -89,9 +89,24 @@ Mevcut `DATABASE_URL` kullanılabilir. İlk veritabanı erişiminde uygulama MU 
 
 ### MU TRACE Mobil
 
-`/mobil` telefon için kurulabilir web uygulamasının (PWA) ana ekranıdır. Aynı MuTerminal veya MU TRACE hesabı ve mevcut firma, mağaza, depo yetkileri kullanılır. Ürün tarama, kontrol, karar talepleri, onay, geri çağırma, rapor ve yönetim ekranları ortak sunucuya bağlıdır. CORE ve MuTerminal Scan bağlantıları ilgili yetki ve özellik ayarına göre görünür.
+Android uygulaması APK olarak dağıtılır. Uygulama, sitenin `/mobil` ekranını Trusted Web Activity içinde açar ve mevcut MuTerminal veya MU TRACE hesabını kullanır. Tarama, kontrol ve rapor işlemleri için cihazın HTTPS üzerinden sunucuya erişmesi gerekir.
 
-Telefondan erişim ve kamera için uygulamayı bir HTTPS adresinde sunun ve `MUTERMINAL_PUBLIC_ORIGIN` değerini bu adresle eşleştirin. Android’de tarayıcıdan **Uygulamayı yükle**, iPhone’da Safari’den **Paylaş → Ana Ekrana Ekle → Web Uygulaması Olarak Aç** seçilebilir. Yerel geliştirmede `http://127.0.0.1:4173/mobil` kullanılır.
+1. JDK 17, Gradle 8.13 ve Android SDK 36 ile çalışın. `MUTERMINAL_PUBLIC_ORIGIN` ortam değişkenini sitenin HTTPS adresine ayarlayın ve proje kökünde `gradle -p android :app:assembleRelease` çalıştırın.
+2. `android/app/build/outputs/apk/release/app-release-unsigned.apk` dosyasını `zipalign` ile hizalayın ve dağıtım anahtarınızla `apksigner sign` kullanarak `muterminal.apk` dosyasını oluşturun. İmzayı `apksigner verify --print-certs muterminal.apk` ile doğrulayın. Sonraki sürümlerde aynı anahtarı kullanın ve Android `versionCode` değerini artırın. [Android imzalama kılavuzu](https://developer.android.com/build/building-cmdline#sign_cmdline)
+3. `public/.well-known/assetlinks.json` dosyasına aşağıdaki Digital Asset Links kaydını ekleyin. Örnek parmak izi yerine APK imzasının iki noktayla ayrılmış SHA-256 parmak izini yazın. [Trusted Web Activity kurulum kılavuzu](https://developer.chrome.com/docs/android/trusted-web-activity/integration-guide/)
+
+   ```json
+   [{
+     "relation": ["delegate_permission/common.handle_all_urls"],
+     "target": {
+       "namespace": "android_app",
+       "package_name": "com.muterminal.mobile",
+       "sha256_cert_fingerprints": ["APK_SHA256_PARMAK_IZI"]
+     }
+   }]
+   ```
+
+4. İmzalı dosyayı `public/mobil/muterminal.apk` konumuna ekleyin ve `MUTERMINAL_ANDROID_APK_URL=/mobil/muterminal.apk` ayarını yapın. Harici sunucuda bir `.apk` HTTPS bağlantısı kullanıyorsanız dosyayı `Content-Disposition: attachment` başlığıyla sunun. Bu ayar ana sayfadaki indirme düğmesini etkinleştirir.
 
 Bağlantı kesildiğinde uygulama yeniden deneme ekranını gösterir. Ürün ve kişisel kayıtlar ile işlem yazma istekleri bağlantı gerektirir. Service worker yalnızca herkese açık bağlantı ekranını önbelleğe alır.
 

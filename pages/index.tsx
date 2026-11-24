@@ -14,7 +14,21 @@ const errors: Record<string, string> = {
   limit: 'Çok fazla giriş denemesi yapıldı. Birkaç dakika sonra tekrar deneyin.',
 };
 
-interface Props { role: PanelRole; loginTitle: string; error: string | null; passwordChanged: boolean; challenge: IssuedChallenge | null; handoff: string | null; mobile: boolean }
+function androidApkUrl() {
+  const configured = process.env.MUTERMINAL_ANDROID_APK_URL?.trim();
+  if (configured === '/mobil/muterminal.apk') return configured;
+  if (!configured) return null;
+
+  try {
+    const url = new URL(configured);
+    if (url.protocol === 'https:' && !url.username && !url.password && /\.apk$/i.test(url.pathname)) return url.href;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+interface Props { role: PanelRole; loginTitle: string; error: string | null; passwordChanged: boolean; challenge: IssuedChallenge | null; handoff: string | null; mobile: boolean; apkUrl: string | null }
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ query, req, res }) => {
   const role = isPanel(query.panel) ? query.panel : 'admin';
@@ -27,10 +41,10 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ query, req
     if (!challenge) error = errors.limit;
   }
   catch (error) { console.error('Login challenge:', error); }
-  return { props: { role, loginTitle: loginTitles[role], error, passwordChanged: query.password === 'changed', challenge, handoff, mobile: query.mobil === '1', language: languageFromCookie(req.headers.cookie) } };
+  return { props: { role, loginTitle: loginTitles[role], error, passwordChanged: query.password === 'changed', challenge, handoff, mobile: query.mobil === '1', apkUrl: androidApkUrl(), language: languageFromCookie(req.headers.cookie) } };
 };
 
-export default function Landing({ role, loginTitle, error, passwordChanged, challenge, handoff, mobile }: Props) {
+export default function Landing({ role, loginTitle, error, passwordChanged, challenge, handoff, mobile, apkUrl }: Props) {
   const t = useTranslate();
   const mobileParam = mobile ? '&mobil=1' : '';
   return <>
@@ -58,7 +72,7 @@ export default function Landing({ role, loginTitle, error, passwordChanged, chal
         <p>{t("MuTerminal, mağaza ekiplerinin ürün ve lot bazında operasyonları takip etmesini, manuel kararları gerekçeleriyle kaydetmesini ve karar geçmişini incelemesini sağlar.")}</p>
         <a className="button hero-journey" href="#urun-akisi">{t("Ürün akışını izle")}</a>
         {' '}<a className="button hero-journey" href="/trace">MU TRACE</a>
-        {' '}<a className="button hero-journey" href="/mobil">{t("Mobil uygulama")}</a>
+        {apkUrl && !mobile && <>{' '}<a className="button hero-journey" href={apkUrl} download="muterminal.apk">{t("Android APK indir")}</a></>}
       </div>
     </div>
     <div className="wrap modules-overview">

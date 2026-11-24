@@ -29,8 +29,6 @@ export default function LanguagePicker() {
       return;
     }
     document.documentElement.lang = next;
-    document.querySelector<HTMLLinkElement>('link[rel="manifest"]')?.setAttribute('href',
-      next === 'en' ? '/mu-mobile-en.webmanifest' : '/mu-mobile.webmanifest');
     setLanguage(next);
   }
   return <div className={styles.picker} role="group" aria-label={t('Dil')}>

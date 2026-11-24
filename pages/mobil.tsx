@@ -12,10 +12,6 @@ import { resolveTraceAccess } from '../server/trace-access';
 import { scanEnabled } from '../server/features';
 import { mobileStaffState, type MobileStaffState } from '../server/mobile-access';
 
-type InstallPrompt = Event & {
-  prompt(): Promise<{ outcome: 'accepted' | 'dismissed' }>;
-};
-
 interface Props {
   account: { role: TraceRole; name: string; canManage: boolean; corePath: string | null; canScan: boolean } | null;
   approval: MobileStaffState;
@@ -37,12 +33,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ req, res, 
 
 export default function MobileHome({ account, approval, invalidCode }: Props) {
   const t = useTranslate();
-  const [installPrompt, setInstallPrompt] = useState<InstallPrompt>();
-  const [installed, setInstalled] = useState(false);
-  const [ios, setIos] = useState(false);
   const [offline, setOffline] = useState(false);
-  const [secure, setSecure] = useState(true);
-  const [installError, setInstallError] = useState('');
   const canLookup = Boolean(account && account.role !== 'super');
   const warehouse = account?.role === 'warehouse';
   const traceHref = warehouse ? '/trace?mobil=1&panel=depo' : '/trace?mobil=1';
@@ -50,42 +41,15 @@ export default function MobileHome({ account, approval, invalidCode }: Props) {
   const locked = account && approval !== 'allowed';
 
   useEffect(() => {
-    const display = window.matchMedia('(display-mode: standalone)');
-    const device = navigator as Navigator & { standalone?: boolean };
-    const checkDisplay = () => setInstalled(display.matches || device.standalone === true);
     const checkConnection = () => setOffline(!navigator.onLine);
-    const handlePrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPrompt); };
-    const handleInstalled = () => { setInstalled(true); setInstallPrompt(undefined); };
-    setIos(/iPhone|iPad|iPod/i.test(device.userAgent) || (device.maxTouchPoints > 1 && /Macintosh/i.test(device.userAgent)));
-    setSecure(window.isSecureContext);
-    checkDisplay();
     checkConnection();
-    display.addEventListener('change', checkDisplay);
     window.addEventListener('online', checkConnection);
     window.addEventListener('offline', checkConnection);
-    window.addEventListener('beforeinstallprompt', handlePrompt);
-    window.addEventListener('appinstalled', handleInstalled);
-    if (window.isSecureContext && 'serviceWorker' in device) {
-      void device.serviceWorker.register('/mu-mobile-sw.js').catch(() => setInstallError('Kurulum bileşeni yüklenemedi.'));
-    }
     return () => {
-      display.removeEventListener('change', checkDisplay);
       window.removeEventListener('online', checkConnection);
       window.removeEventListener('offline', checkConnection);
-      window.removeEventListener('beforeinstallprompt', handlePrompt);
-      window.removeEventListener('appinstalled', handleInstalled);
     };
   }, []);
-
-  async function install() {
-    if (!installPrompt) return;
-    setInstallPrompt(undefined);
-    setInstallError('');
-    try {
-      const { outcome } = await installPrompt.prompt();
-      if (outcome === 'accepted') setInstalled(true);
-    } catch { setInstallError('Uygulamayı tarayıcı menüsünden ana ekrana ekleyebilirsiniz.'); }
-  }
 
   return <div className={styles.shell}>
     <Head>
@@ -112,7 +76,7 @@ export default function MobileHome({ account, approval, invalidCode }: Props) {
           : <form method="post" action="/api/trace/mobile/verify" className={styles.approvalForm}>
             {invalidCode && <p role="alert" className={styles.notice}>{t("Onay kodu geçersiz. Yöneticinizin size verdiği güncel kodu kullanın.")}</p>}
             <label>{t("Onay kodu")}<input name="code" required maxLength={36} autoComplete="off" autoCapitalize="characters" spellCheck={false} /></label>
-            <button className={styles.installButton}>{t("Mobil erişimi aç")}</button>
+            <button className={styles.approvalButton}>{t("Mobil erişimi aç")}</button>
           </form>}
       </section> : <section className={styles.hero}>
         <h1>{t("MU TRACE Mobil")}</h1>
@@ -132,14 +96,6 @@ export default function MobileHome({ account, approval, invalidCode }: Props) {
         {account.canScan && <a href="/staff/scan?mobil=1"><strong>MuTerminal Scan</strong>
           <span>{t("Fiziksel ürün kontrolü yapın.")}</span></a>}
       </div>}
-      {!installed && <details className={styles.install}>
-        <summary>{t("Uygulamayı ana ekrana ekle")}</summary>
-        {!secure ? <p>{t("Telefonda kurulum ve kamera erişimi için uygulamayı HTTPS adresinden açın.")}</p> : installPrompt
-          ? <button type="button" className={styles.installButton} onClick={() => void install()}>{t("Uygulamayı yükle")}</button>
-          : <p>{ios ? t("Safari’de Paylaş → Ana Ekrana Ekle → Web Uygulaması Olarak Aç yolunu izleyin.")
-            : t("Tarayıcı menüsünde Uygulamayı yükle veya Ana ekrana ekle seçeneğini kullanın.")}</p>}
-        {installError && <p role="status">{t(installError)}</p>}
-      </details>}
     </main>
     {account && !locked && <MobileNav current="home" canLookup={canLookup} canManage={account.canManage} personal={personal} warehouse={warehouse} />}
   </div>;

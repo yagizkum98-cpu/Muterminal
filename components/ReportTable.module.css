@@ -1,0 +1,9 @@
+.scroll { max-width: 100%; overflow-x: auto; }
+.scroll:focus-visible { outline: 2px solid #126847; outline-offset: 2px; }
+.scroll table { border-collapse: collapse; width: 100%; text-align: start; font-size: .9rem; }
+.scroll th, .scroll td { padding: .55rem .65rem; vertical-align: top; border-bottom: 1px solid #cbd9d1; }
+.scroll th { background: #e2eee7; color: #12372d; }
+.scroll td { min-width: 6rem; max-width: 26rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.scroll tbody tr:nth-child(even) { background: #f5f9f6; }
+.scroll td[data-numeric='true'] { text-align: end; font-variant-numeric: tabular-nums; }
+.count, .note { margin: .5rem 0; color: #486558; font-size: .875rem; }

@@ -1,5 +1,6 @@
 import LanguagePicker, { useTranslate } from '../components/LanguagePicker';
 import ChangePassword from '../components/ChangePassword';
+import ReportDownload from '../components/ReportDownload';
 import { languageFromCookie } from '../lib/language';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
@@ -90,7 +91,7 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
     </section>
     <div className="cards" id="stats" hidden></div>
     <section id="dashboard-panel" hidden>
-      <h2>{t("Operasyon dashboardu")}</h2>
+      <h2>{t("Operasyon panosu")}</h2>
       <h3 id="bekleyen-onaylar">{t("Bekleyen onaylar")}</h3>
       <p id="review-status" className="status" role="status"></p>
       <div id="approval-list"></div>
@@ -98,7 +99,7 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
       <div className="scroll"><table aria-labelledby="report-title"><thead><tr>
         <th id="report-group">{t("Mağaza")}</th><th>{t("Kontrol kayıtları")}</th><th>{t("Karar işlemleri")}</th><th>{t("Bekleyen talepler")}</th>
       </tr></thead><tbody id="report-rows"></tbody></table></div>
-      <p><button type="button" id="download-report" disabled>{t("Raporu JSON olarak indir")}</button></p>
+      <ReportDownload core="summary" />
     </section>
     <section id="management-panel" hidden>
       <h2>{t("Sistem yönetimi")}</h2>
@@ -246,8 +247,9 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
         <input id="history-date" type="date" aria-label={t("Karar tarihi")} />
         <select id="history-operation" aria-label={t("Kararların operasyonu")}></select>
         <button id="clear-lot" type="button" className="secondary" hidden>{t("Lot filtresini kaldır")}</button>
-        <button id="export" type="button" disabled>{t("JSON dışa aktar")}</button>
+        <button id="export" type="button" className="secondary" disabled>{t("Ham kayıtları indir (JSON)")}</button>
       </div>
+      <ReportDownload core="history" />
       <p id="lot-filter" hidden></p>
       <div className="scroll">
         <table>
