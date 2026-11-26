@@ -7,7 +7,7 @@ export type Document = Record<string, unknown>;
 type Filter = Record<string, unknown>;
 type Projection = Record<string, 0 | 1>;
 type Update = { $set?: Document; $unset?: Document; $push?: Document };
-export type Entity = 'products' | 'accounts' | 'stores' | 'account_password_overrides' | 'system_settings' | 'department_options';
+export type Entity = 'products' | 'accounts' | 'stores' | 'account_password_overrides' | 'system_settings' | 'department_options' | 'pilot_catalog';
 type EntityRow = { id: string; document: Document };
 
 type SchemaInitialization = { revision: string; ready: Promise<void> };
@@ -195,14 +195,26 @@ export class Table {
     return rows[0] ? project(rows[0], options?.projection) : null;
   }
 
-  async insertOne(record: Document) {
+  async insertOne(record: Document, afterWrite?: (client: PoolClient, id: string) => Promise<void>) {
     const { _id, ...document } = record;
     const id = typeof _id === 'string' ? _id : newRecordId();
-    await query(`INSERT INTO ${this.table} (id, document) VALUES ($1, $2)`, [id, JSON.stringify(document)]);
+    const sql = `INSERT INTO ${this.table} (id, document) VALUES ($1, $2)`;
+    const values = [id, JSON.stringify(document)];
+    if (afterWrite) {
+      await ensureSchema();
+      await transaction(async client => {
+        await client.query(sql, values);
+        await afterWrite(client, id);
+      });
+    } else await query(sql, values);
     return { insertedId: id };
   }
 
-  async updateOne(filter: Filter, update: Update, options?: { upsert?: boolean; beforeUpdate?: (client: PoolClient) => Promise<void> }) {
+  async updateOne(filter: Filter, update: Update, options?: {
+    upsert?: boolean;
+    beforeUpdate?: (client: PoolClient) => Promise<void>;
+    afterWrite?: (client: PoolClient, id: string) => Promise<void>;
+  }) {
     await ensureSchema();
     return transaction(async client => {
       await options?.beforeUpdate?.(client);
@@ -212,6 +224,7 @@ export class Table {
       const existing = rows[0];
       if (existing) {
         await client.query(`UPDATE ${this.table} SET document = $2 WHERE id = $1`, [existing.id, JSON.stringify(applyUpdate(existing.document, update))]);
+        await options?.afterWrite?.(client, existing.id);
       } else if (options?.upsert && typeof filter._id === 'string') {
         await client.query(`INSERT INTO ${this.table} (id, document) VALUES ($1, $2)
           ON CONFLICT (id) DO UPDATE SET document = ${this.table}.document || EXCLUDED.document`,

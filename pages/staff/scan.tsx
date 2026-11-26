@@ -1,6 +1,8 @@
 import LanguagePicker, { useLanguage, useTranslate } from '../../components/LanguagePicker';
 import ReportDownload from '../../components/ReportDownload';
 import ReportTable from '../../components/ReportTable';
+import EvidenceFields from '../../components/EvidenceFields';
+import { encodeEvidence } from '../../public/mu-evidence.mjs';
 import { languageFromCookie } from '../../lib/language';
 import { scanReport, type ScanActivity } from '../../lib/report-data';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -149,13 +151,16 @@ export default function StaffScan({ staff, initialBarcode, initialLot, mobile }:
   async function send(event: FormEvent) {
     event.preventDefault();
     if (busy || !product || !choices.includes(choice)) return;
+    const file = document.querySelector<HTMLInputElement>('#scan-evidence-photo')?.files?.[0];
+    const category = document.querySelector<HTMLSelectElement>('#scan-evidence-category')?.value ?? '';
     setBusy(true);
     setError('');
     try {
+      const evidence = await encodeEvidence(file, category);
       const { requestId } = await request<{ requestId: string }>('/api/scan/requests', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productId, choice, reason, rks: check.rks, packaging: check.packaging,
-          expiryDate: check.unreadable ? null : check.expiryDate, quantity: Number(check.quantity) }),
+          expiryDate: check.unreadable ? null : check.expiryDate, quantity: Number(check.quantity), evidence }),
       });
       window.location.assign(`/manager?talep=${encodeURIComponent(requestId)}${mobile ? '&mobil=1' : ''}#talep-${encodeURIComponent(requestId)}`);
     } catch (error) {
@@ -259,6 +264,7 @@ export default function StaffScan({ staff, initialBarcode, initialLot, mobile }:
               <div><dt>{t("RKS ve ambalaj")}</dt><dd>{t(rksOptions[check.rks as keyof typeof rksOptions])} · {t(packagingOptions[check.packaging as keyof typeof packagingOptions])}</dd></div>
               <div className={styles.reason}><dt>{t("Gerekçe")}</dt><dd>{reason}</dd></div>
             </dl>
+            <EvidenceFields prefix="scan" />
             <button className={styles.primary} type="submit" disabled={busy}>{busy ? t("Gönderiliyor…") : t("Yöneticiye gönder")}</button>
           </form>}
           {step > 0 && <button type="button" className={styles.back} disabled={busy} onClick={() => { setError(''); setStep(step - 1); }}>{t("Önceki adım")}</button>}

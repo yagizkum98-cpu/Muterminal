@@ -1,10 +1,11 @@
+const crossDock = 'Cross-Dock';
 const saleApproval = 'Satılabilir (ön onay)';
 const assessments = [
   { choice: saleApproval, guarded: true },
   { choice: 'Satılamaz' },
   { choice: 'İncelemede' },
   { choice: 'Depo İade' },
-  { choice: 'Cross-Dock Uygun', guarded: true, operation: 'Cross-Dock', from: ['Sevkiyata uygun', 'Sevkiyata yönlendirildi'] },
+  { choice: 'Cross-Dock Uygun', guarded: true, operation: crossDock, from: ['Sevkiyata uygun', 'Sevkiyata yönlendirildi'] },
 ];
 const operations = {
   'RKS Blokaj': {
@@ -78,8 +79,8 @@ const operations = {
       { choice: 'Düzeltme talebini reddet', result: 'Düzeltme talebi reddedildi', from: ['Onay bekliyor'] },
     ],
   },
-  'Cross-Dock': {
-    title: 'Cross-Dock', feature: 'MuDock',
+  [crossDock]: {
+    title: crossDock, feature: 'MuDock',
     description: 'Doğrudan sevkiyat uygunluğunu değerlendirin ve uygun ürün için varış noktası kaydedin.',
     initial: 'Kontrol bekliyor',
     fields: [{ name: 'dockNote', label: 'Sevkiyat kontrol notu', type: 'text', max: 500 }],
@@ -91,4 +92,4 @@ const operations = {
   },
 };
 
-module.exports = { operations, saleApproval, assessments };
+module.exports = { operations, saleApproval, assessments, crossDock };

@@ -14,6 +14,12 @@ input, select, textarea, button { font: inherit; padding: 10px; border: 1px soli
 button { background: #126847; color: white; cursor: pointer; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+#scan-lite-panel .toolbar { align-items: flex-end; }
+#scan-lite-panel .toolbar label { display: grid; gap: 4px; margin: 0; }
+.evidence-fields { min-width: 0; border: 1px solid #dce7e0; border-radius: 8px; margin: 14px 0; }
+.evidence-fields input[type="file"] { max-width: 100%; }
+#pilot-risks { padding-inline-start: 1.4rem; }
+#pilot-risks li { margin-bottom: .5rem; }
 .modules { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
 .modules button, button.secondary { color: #124c39; background: #fff; }
 button.delete-product { color: #972525; background: #fff; border-color: #e6baba; }

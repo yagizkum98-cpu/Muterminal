@@ -2,6 +2,8 @@ import LanguagePicker, { useTranslate } from '../components/LanguagePicker';
 import ChangePassword from '../components/ChangePassword';
 import ReportDownload from '../components/ReportDownload';
 import NotificationSettings from '../components/NotificationSettings';
+import ScanLite from '../components/ScanLite';
+import EvidenceFields from '../components/EvidenceFields';
 import { languageFromCookie } from '../lib/language';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
@@ -110,6 +112,7 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
       </div>
     </section>
     <p id="sync-status" role="status">{t("Kayıtlar yükleniyor…")}</p>
+    <ScanLite role={role} mobile={mobile} />
     <section id="decision-files-panel" aria-labelledby="decision-files-title">
       <h2 id="decision-files-title"><img src="/mudecision-logo.png" width="2172" height="724" alt="MuDecision" /></h2>
       <p>{t("MuTerminal Core’a girilen operasyonları ürün ve lot bazında inceleyin, ilgili kayda gidin ve kararınızı gerekçesiyle kaydedin.")}</p>
@@ -121,15 +124,37 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
     </section>
     <div className="cards" id="stats" hidden></div>
     <section id="dashboard-panel" hidden>
-      <h2>{t("Operasyon panosu")}</h2>
-      <h3 id="bekleyen-onaylar">{t("Bekleyen onaylar")}</h3>
-      <p id="review-status" className="status" role="status"></p>
-      <div id="approval-list"></div>
+      <h2>MuDashboard Lite</h2>
+      <div id="pilot-metrics" className="cards"></div>
+      <h3 id="pilot-risks-title">{t('SKT riskleri')}</h3>
+      <ul id="pilot-risks" aria-labelledby="pilot-risks-title"></ul>
+      <h3 id="pilot-history-title">{t('Ürün işlem geçmişi')}</h3>
+      <label htmlFor="pilot-history-search">{t('Ürün, barkod veya lot ara')}</label>
+      <input id="pilot-history-search" type="search" autoComplete="off" />
+      <p id="pilot-history-limit" hidden>{t('En son 50 eşleşme gösteriliyor.')}</p>
+      <div className="scroll"><table aria-labelledby="pilot-history-title">
+        <thead><tr><th>{t('Tarih')}</th><th>{t('Ürün / Lot')}</th><th>{t('Operasyon')}</th><th>{t('Sonuç')}</th><th>{t('İşlem')}</th></tr></thead>
+        <tbody id="pilot-history"></tbody>
+      </table></div>
       <h3 id="report-title">{t("Operasyon raporu")}</h3>
       <div className="scroll"><table aria-labelledby="report-title"><thead><tr>
         <th id="report-group">{t("Mağaza")}</th><th>{t("Kontrol kayıtları")}</th><th>{t("Karar işlemleri")}</th><th>{t("Bekleyen talepler")}</th>
       </tr></thead><tbody id="report-rows"></tbody></table></div>
       <ReportDownload core="summary" />
+    </section>
+    <section id="approval-panel" aria-labelledby="approval-title" hidden>
+      <h2 id="approval-title">MuApproval Lite</h2>
+      {role === 'staff' && <p><button type="button" id="approval-new">{t('Karar talebi oluştur')}</button></p>}
+      <h3 id="bekleyen-onaylar">{t("Bekleyen onaylar")}</h3>
+      <p id="review-status" className="status" role="status"></p>
+      <div id="approval-list"></div>
+      <div id="approval-history-panel" hidden>
+        <h3 id="approval-history-title">{t('Talep ve inceleme geçmişi')}</h3>
+        <div className="scroll"><table aria-labelledby="approval-history-title">
+          <thead><tr><th>{t('Tarih')}</th><th>{t('Ürün / Lot')}</th><th>{t('Personel')}</th><th>{t('Karar ve gerekçe')}</th><th>{t('Sonuç')}</th></tr></thead>
+          <tbody id="approval-history"></tbody>
+        </table></div>
+      </div>
     </section>
     <section id="management-panel" hidden>
       <h2>{t("Sistem yönetimi")}</h2>
@@ -234,6 +259,7 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
         <div className="fields" id="operation-fields"></div>
         <p id="stock-preview" role="status" hidden></p>
         <label id="expired-field"><input id="expired" name="expired" type="checkbox" />{" " + t("Son kullanma tarihi geçmiş")}</label>
+        <EvidenceFields prefix="entry" />
         <p><button type="submit" id="save-product">{t("Ürünü kaydet")}</button> <button type="button" className="secondary" id="cancel-edit" hidden>{t("Vazgeç")}</button></p>
         <p id="product-status" className="status" role="status"></p>
       </form>
@@ -268,6 +294,7 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
         </div>
         <label htmlFor="reason">{t("Karar gerekçesi")}</label>
         <textarea id="reason" name="reason" placeholder={t("Kontrol sonucu ve gerekçe")} maxLength={1000} required></textarea>
+        <EvidenceFields prefix="decision" />
         <label id="proposal-field" hidden><input id="submit-as-proposal" type="checkbox" />{" " + t("Onaya gönder")}</label>
         <p><button type="submit">{t("Kararı kaydet")}</button> <small>{t("Karar kayıtları ERP stok durumunu değiştirmez.")}</small></p>
         <p id="decision-status" className="status" role="status"></p>

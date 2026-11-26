@@ -6,6 +6,7 @@ import ProductJourney from '../components/ProductJourney';
 import { createChallenge, type IssuedChallenge } from '../server/challenge';
 import LoginChallenge from '../components/LoginChallenge';
 import { isPanel, loginTitles, type PanelRole } from '../server/panels';
+import { crossDockEnabled } from '../server/features';
 
 const errors: Record<string, string> = {
   dogrulama: 'Doğrulama kodu hatalı veya süresi dolmuş. Yeni görseldeki harfleri girin.',
@@ -28,7 +29,7 @@ function androidApkUrl() {
   return null;
 }
 
-interface Props { role: PanelRole; loginTitle: string; error: string | null; passwordChanged: boolean; challenge: IssuedChallenge | null; handoff: string | null; mobile: boolean; apkUrl: string | null }
+interface Props { role: PanelRole; loginTitle: string; error: string | null; passwordChanged: boolean; challenge: IssuedChallenge | null; handoff: string | null; mobile: boolean; apkUrl: string | null; showCrossDock: boolean }
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ query, req, res }) => {
   const role = isPanel(query.panel) ? query.panel : 'admin';
@@ -41,10 +42,10 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ query, req
     if (!challenge) error = errors.limit;
   }
   catch (error) { console.error('Login challenge:', error); }
-  return { props: { role, loginTitle: loginTitles[role], error, passwordChanged: query.password === 'changed', challenge, handoff, mobile: query.mobil === '1', apkUrl: androidApkUrl(), language: languageFromCookie(req.headers.cookie) } };
+  return { props: { role, loginTitle: loginTitles[role], error, passwordChanged: query.password === 'changed', challenge, handoff, mobile: query.mobil === '1', apkUrl: androidApkUrl(), showCrossDock: crossDockEnabled(), language: languageFromCookie(req.headers.cookie) } };
 };
 
-export default function Landing({ role, loginTitle, error, passwordChanged, challenge, handoff, mobile, apkUrl }: Props) {
+export default function Landing({ role, loginTitle, error, passwordChanged, challenge, handoff, mobile, apkUrl, showCrossDock }: Props) {
   const t = useTranslate();
   const mobileParam = mobile ? '&mobil=1' : '';
   return <>
@@ -82,7 +83,7 @@ export default function Landing({ role, loginTitle, error, passwordChanged, chal
         <ul>
           <li>{t("RKS, delist ve geçici blokaj takibi")}</li>
           <li>{t("Lot ve son kullanma tarihi kontrolü")}</li>
-          <li>{t("Depo iadesi, sayım farkı ve Cross-Dock değerlendirmesi")}</li>
+          <li>{t(showCrossDock ? "Depo iadesi, sayım farkı ve Cross-Dock değerlendirmesi" : "Depo iadesi ve sayım farkı")}</li>
         </ul>
       </section>
       <section aria-labelledby="decision-title">

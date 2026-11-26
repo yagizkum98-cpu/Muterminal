@@ -95,6 +95,10 @@ export default function MobileHome({ account, approval, invalidCode }: Props) {
           <span>{t("Kullanıcı ve lokasyon kapsamlarını yönetin.")}</span></a>}
         {account.corePath && <a href={account.corePath}><strong>MuTerminal CORE</strong>
           <span>{t("Operasyon kayıtlarını ve MuDecision dosyalarını açın.")}</span></a>}
+        {account.corePath && <a href={`${account.corePath}#muscan-lite`}><strong>MuScan Lite</strong>
+          <span>{t("Barkodla ürün sorgula.")}</span></a>}
+        {account.corePath && <a href={`${account.corePath}#muapproval-lite`}><strong>MuApproval Lite</strong>
+          <span>{t("Karar taleplerini ve sonuçlarını görün.")}</span></a>}
         {account.canScan && <a href="/staff/scan?mobil=1"><strong>MuTerminal Scan</strong>
           <span>{t("Fiziksel ürün kontrolü yapın.")}</span></a>}
       </div>}

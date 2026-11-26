@@ -1,6 +1,10 @@
-# MuTerminal Core · Aşama 1
+# MuTerminal Core · Aşama 1 (0–3 ay)
 
-FİLE Market için 0–3 aylık MVP pilotu. Temel operasyonları ve gerekçeli manuel kararları mağaza bazında kaydeder. Eski kayıtlar Pilot Mağaza altında görünür.
+İlk MVP’nin hedefi bir FİLE Market pilot mağazasında ürün ve lot bazında kontrol, gerekçeli manuel karar, yönetici onayı ve otomatik dijital kayıt akışını doğrulamaktır. Pilot altı temel modülü kapsar. Eski kayıtlar Pilot Mağaza altında görünür.
+
+**Pilot iş akışı**
+
+Barkodla ürün kontrolü → Gerekçeli manuel karar → Yönetici onayı → Otomatik dijital kayıt
 
 ## Çalıştırma
 
@@ -29,7 +33,7 @@ Giriş formunda **Admin**, **Yönetici**, **Personel** veya **Depo** girişini s
 
 Yeni personel hesaplarında dört iş unvanından biri seçilir. Yönetici **Personel Yönetimi**, admin ise **Sistem Yönetimi** bölümünden unvan atayabilir veya güncelleyebilir. Mevcut personel reyon atamaları iş unvanlarına karşılık gelir ve personel kendi unvanını panelinde görür.
 
-## Operasyon modülleri
+## İlk MVP’nin altı temel modülü
 
 **MuScan** geliştirme aşamasındadır. Pilot tester hesabı ekranı ve API'yi test edebilir. Prosedürler tamamlanıp açılış onayı verildiğinde sunucu ortamında `MUTERMINAL_SCAN_ENABLED=true` ile personel erişimi etkinleştirilebilir. Mevcut kontrol kayıtları Core işlem geçmişinde saklanır. Scan işlem geçmişindeki bekleyen ve sonuçlanan talepler, Türkçe veya İngilizce PDF, Excel ve JSON olarak indirilebilir.
 
@@ -37,19 +41,36 @@ Yeni personel hesaplarında dört iş unvanından biri seçilir. Yönetici **Per
 
 Core ve MuDecision listelerinde **🗑️ Sil** düğmesi, onaydan sonra seçilen operasyon kaydını ve o kayda bağlı karar geçmişini kalıcı olarak siler.
 
-- **RKS Blokaj · MuBlock** — Blokaj nedeni, inceleme kararı ve blokaj kaldırma talebi.
-- **Delist Blokaj · MuBlock** — Listeden çıkarma nedeni, blokaj durumu ve inceleme kararı.
-- **Geçici Blokaj · MuBlock** — Blokaj nedeni ve Türkiye saatiyle bitiş. Süre dolunca **Blokajı kaldır** ile karar gerekçesi kaydedilir ve geçici blokaj kaydı **Normal** durumuna geçer.
+- **MuBlock** — RKS, delist ve geçici blokaj kontrolleri.
+  - **RKS Blokaj** — Blokaj nedeni, inceleme kararı ve blokaj kaldırma talebi.
+  - **Delist Blokaj** — Listeden çıkarma nedeni, blokaj durumu ve inceleme kararı.
+  - **Geçici Blokaj** — Blokaj nedeni ve Türkiye saatiyle bitiş. Süre dolunca **Blokajı kaldır** ile karar gerekçesi kaydedilir ve geçici blokaj kaydı **Normal** durumuna geçer.
 - **SKT Kontrol · MuExpiry** — Lot ve son kullanma tarihi, yaklaşan veya geçmiş tarih göstergesi, ayırma ve iade kararı.
 - **Depo İade · MuReturn** — İade gerekçesi ve miktarı, gönderim, teslim ve sorun takibi.
 - **Depo Fark · MuDifference** — Sistem stoku ile fiziksel sayım karşılaştırması, düzeltme talebi ve onay veya ret.
-- **Cross-Dock · MuDock** — Sevkiyata uygunluk değerlendirmesi ve uygun lot için varış noktası.
-- **MuDecision** — Core kayıtlarını barkod ve lot bazında canlı karar dosyalarında toplar. Operasyon kaydına ve lot geçmişine doğrudan geçilebilir. Satılabilirlik ön onayı, inceleme, depo iadesi ve Cross-Dock uygunluğu değerlendirmeleri karar gerekçesiyle kaydedilir. Cross-Dock uygunluğu için aynı operasyon kaydının sevkiyata uygun durumda olması ve lotta açık engel bulunmaması gerekir.
+- **MuDecision** — Core kayıtlarını barkod ve lot bazında canlı karar dosyalarında toplar. Operasyon kaydına ve lot geçmişine doğrudan geçilebilir. Satılabilirlik ön onayı, inceleme ve depo iadesi değerlendirmeleri karar gerekçesiyle kaydedilir.
 - **Karar Geçmişi · MuLog** — Ürün ve lot bazında tarih, beyan edilen personel, gerekçe ve sonuç. Filtrelenen kararlar Türkçe veya İngilizce PDF, Excel ve JSON raporu olarak indirilebilir. Ham kayıtların JSON dışa aktarımı da kullanılabilir.
 
 Operasyon kararları ve satılabilirlik değerlendirmeleri gerekçeleriyle PostgreSQL’de saklanır. Değişiklikler açık sekmelerde otomatik güncellenir. Eski kayıtların eksik operasyon alanları **Bilgileri tamamla** ile doldurulabilir. Önceki kararlar geçmişte saklanır.
 
 Satış ön onayı MuTerminal’de kaydedilir. RKS blokajının kaldırılması, SKT uygunluğu ve stok hareketleri yetkili sistemlerde ayrıca doğrulanmalıdır.
+
+### Pilotun dört destek modülü
+
+| Modül | Öncelik | Kullanım |
+| --- | --- | --- |
+| **MuScan Lite** | Kritik | Barkodu kamerayla okutun, harici okuyucuyla tarayın veya elle girin. Mağazadaki kayıtları açabilir ya da ürün adı ve barkodla bir kontrol başlatabilirsiniz. Admin mağaza filtresinden ilgili mağazayı seçerek barkod ve ürün adını pilot kataloğa kaydedebilir. Katalog PostgreSQL’de saklanır ve ERP bağlantısı gerektirmez. |
+| **MuApproval Lite** | Kritik | Personel MuDecision veya operasyon kaydından talep oluşturur. Yönetici ya da yetkili admin gerekçe girerek onaylar, reddeder veya ek kontrol ister. Talep sahibi ek kontrolden sonra yeni gerekçeyle yeniden gönderir. İlk talep, inceleme ve sonraki gönderim geçmişte kalır. |
+| **MuEvidence** | Yüksek | Yeni kontrol kaydına veya karar talebine hasarlı ambalaj, ürün etiketi ya da SKT fotoğrafı eklenebilir. Tarayıcı fotoğrafı en fazla 512 KB JPEG olarak hazırlar. Fotoğrafı yetkili yönetici ve admin ile fotoğrafı ekleyen personel açabilir. |
+| **MuDashboard Lite** | Yüksek | Yönetici ve admin seçili mağaza ve reyon kapsamında kontrol sayısını, bekleyen onayları, ortalama inceleme süresini, SKT risklerini ve aranabilir ürün işlem geçmişini görür. Süre, gönderim ve inceleme zamanı bulunan talepler üzerinden hesaplanır. |
+
+## Aşama 3 · MuTerminal Operations (6–12 ay)
+
+**Cross-Dock · MuDock**, depo ve dağıtım kapsamındaki bu aşamada **MuWarehouse** ve **MuTransfer** ile birlikte geliştirilecektir. Bu sıralama, ilk pilotun mağaza içi ürün kararlarına odaklanmasını sağlar ve depo ile sevkiyat entegrasyonlarını sonraki aşamaya bırakır.
+
+Gerçek depo ve sevkiyat verilerine erişim sağlandığında Cross-Dock uygunluk kontrolleri, lot için varış noktası önerileri ve onay kayıtları geliştirilecektir. MuDecision’daki **Cross-Dock Uygun** kararı için ilgili operasyon kaydının sevkiyata uygun durumda olması ve lotta açık engel bulunmaması gerekir.
+
+MuDock ilk MVP’de varsayılan olarak kapalıdır. Mevcut kayıtlar ve karar geçmişi görüntülenebilir. Akış doğrulandıktan sonra sunucu ortamında `MUTERMINAL_CROSS_DOCK_ENABLED=true` ayarlanarak modül etkinleştirilebilir.
 
 ## Kurumsal entegrasyon kapsamı
 MVP girişleri, rol ve mağaza yetkilerini ve gerekçeli onayları PostgreSQL’de tutar. Kurumsal SSO, harici denetim arşivi ve ERP/WMS bağlantıları ayrı kurulum gerektirir. RKS blokajını kaldırma, satışa açma ve resmî stok düzeltmesi yetkili ERP/WMS süreçlerinde yürütülür.

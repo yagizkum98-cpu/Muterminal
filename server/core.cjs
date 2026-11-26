@@ -1,9 +1,9 @@
 const { createHash, randomBytes, scrypt, timingSafeEqual } = require('node:crypto');
 const { promisify } = require('node:util');
-const { operations, saleApproval, assessments } = require('../operations.cjs');
+const { operations, saleApproval, assessments, crossDock } = require('../operations.cjs');
 
-function createCore(database, challenge, { scanEnabled, testerEmail }, trace, traceAccess, traceControls, mobileAccess, notifications) {
-  const { Table, newRecordId, createSession, findSession, deleteSession, revokeSessions, ensureSchema, transaction } = database;
+function createCore(database, challenge, { scanEnabled, crossDockEnabled, testerEmail }, trace, traceAccess, traceControls, mobileAccess, notifications) {
+  const { Table, newRecordId, createSession, findSession, deleteSession, revokeSessions, ensureSchema, transaction, query } = database;
   const { createChallenge, challengeImage, verifyChallenge, allowLoginRequest } = challenge;
   const records = new Table('products');
   const users = new Table('accounts');
@@ -11,6 +11,9 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
   const stores = new Table('stores');
   const settingsCollection = new Table('system_settings');
   const departmentOptions = new Table('department_options');
+  const pilotCatalog = new Table('pilot_catalog');
+  const evidenceBodyLimit = 720_000;
+  const evidenceCategories = new Set(['Hasarlı ambalaj', 'Ürün etiketi', 'SKT bilgisi']);
   const pilotStore = { id: 'pilot', name: 'Pilot Mağaza' };
   const panels = { admin: 'MuTerminal Admin', manager: 'MuTerminal Manager', staff: 'MuTerminal Staff' };
   const defaultPilotPassword = '1234567890';
@@ -93,12 +96,12 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     }).end(JSON.stringify(data));
   }
 
-  async function readBody(request) {
+  async function readBody(request, limit = 16_384) {
     const chunks = [];
     let size = 0;
     for await (const chunk of request.iterator({ destroyOnReturn: false })) {
       size += chunk.length;
-      if (size > 16_384) {
+      if (size > limit) {
         request.resume();
         throw new RequestError(413, 'Gönderilen veri çok büyük.');
       }
@@ -107,11 +110,11 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     return Buffer.concat(chunks).toString('utf8');
   }
 
-  async function readJson(request) {
+  async function readJson(request, limit) {
     if (request.headers['content-type']?.split(';')[0].trim() !== 'application/json') {
       throw new RequestError(415, 'Kayıt verisi JSON biçiminde olmalıdır.');
     }
-    const text = await readBody(request);
+    const text = await readBody(request, limit);
     try {
       const body = JSON.parse(text);
       if (body && typeof body === 'object' && !Array.isArray(body)) return body;
@@ -277,7 +280,9 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
       const tracePath = path === '/api/trace' || path.startsWith('/api/trace/');
       const notificationPath = path === '/api/notifications';
       const scanPath = path === '/api/scan' || path.startsWith('/api/scan/');
-      const panel = request.headers['x-muterminal-panel'];
+      const evidencePath = path.startsWith('/api/products/') && path.includes('/evidence/');
+      const panel = request.headers['x-muterminal-panel']
+        ?? (evidencePath ? new URL(request.url, 'http://localhost').searchParams.get('panel') : null);
       const corePanel = typeof panel === 'string' && Object.hasOwn(panels, panel) ? panel : undefined;
       const session = await getSession(request, tracePath || (notificationPath && ['trace', 'depo'].includes(panel)) ? panel === 'depo' ? 'depo' : 'trace'
         : scanPath ? 'staff' : corePanel);
@@ -788,12 +793,55 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     throw new RequestError(400, 'Geçerli bir reyon seçin.');
   }
 
+  function operationEnabled(type) {
+    return type !== crossDock || crossDockEnabled();
+  }
+
+  function requireEnabledOperation(type) {
+    if (!operationEnabled(type)) throw new RequestError(409, 'Cross-Dock sonraki geliştirme aşamasında kullanıma açılacak.');
+  }
+
+  function readEvidence(value, session) {
+    if (value === undefined) return;
+    if (!value || !evidenceCategories.has(value.category) || typeof value.photo !== 'string') {
+      throw new RequestError(400, 'Geçerli bir kanıt türü ve fotoğrafı seçin.');
+    }
+    const photo = Buffer.from(value.photo, 'base64');
+    if (photo.length < 4 || photo.length > 524288 || photo.toString('base64') !== value.photo ||
+        photo[0] !== 0xff || photo[1] !== 0xd8 || photo[2] !== 0xff || photo.readUInt16BE(photo.length - 2) !== 0xffd9) {
+      throw new RequestError(400, 'Kanıt fotoğrafı en fazla 512 KB boyutunda bir JPEG olmalıdır.');
+    }
+    const reference = { id: newRecordId(), category: value.category };
+    return {
+      reference,
+      afterWrite: (client, productId) => client.query(
+        'INSERT INTO product_evidence (id, product_id, actor, photo) VALUES ($1, $2, $3, $4)',
+        [reference.id, productId, session.email, photo],
+      ),
+    };
+  }
+
+  async function showEvidence(response, session, productId, evidenceId) {
+    const product = await records.findOne({ _id: productId, ...accessScope(session) }, { projection: { _id: 1 } });
+    const result = product && await query(
+      'SELECT photo FROM product_evidence WHERE id = $1 AND product_id = $2 AND ($3::text IS NULL OR actor = $3)',
+      [evidenceId, productId, session.role === 'staff' ? session.email : null],
+    );
+    const photo = result?.rows[0]?.photo;
+    if (!photo) throw new RequestError(404, 'Kanıt fotoğrafı bulunamadı.');
+    response.writeHead(200, {
+      'Content-Type': 'image/jpeg', 'Content-Length': photo.length, 'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'",
+    }).end(photo);
+  }
+
   async function newProduct(body) {
     const name = requiredText(body, 'name', 'Ürün adı', 150);
     const code = requiredText(body, 'code', 'Barkod', 80);
     const lot = requiredText(body, 'lot', 'Lot', 80);
     const { type, expired } = body;
     if (!Object.hasOwn(operations, type)) throw new RequestError(400, 'Geçerli bir operasyon seçin.');
+    requireEnabledOperation(type);
     const department = await requiredDepartment(body.department);
     const operation = operations[type];
     const details = operationDetails(operation, body.details ?? {});
@@ -836,7 +884,7 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
   }
 
   function availableActions(product, risk, now) {
-    if (!product.details) return [];
+    if (!product.details || !operationEnabled(product.type)) return [];
     return operations[product.type].actions.filter(action => (
       action.choice !== saleApproval &&
       (!action.from || action.from.includes(product.status)) &&
@@ -867,7 +915,7 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
       return risk;
     });
     for (const [index, record] of entries.entries()) {
-      const { _id, decisions, proposal, createdBy, ...product } = record;
+      const { _id, decisions, proposal, recheck, evidence, createdBy, ...product } = record;
       const id = _id;
       const storeId = productStore(product);
       const ownRisk = risks[index];
@@ -878,14 +926,26 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
       const recalled = recalls.has(lotKey);
       const effectiveRisk = recalled ? { label: 'Açık geri çağırma', level: 'danger', blocks: true }
         : relatedRks && !risk?.blocks ? { label: 'Mağazada açık RKS blokajı', level: 'warn', blocks: true } : risk;
-      const actions = availableActions(product, effectiveRisk, now).filter(action => session.canApprove || action.requestable);
-      const assessmentActions = assessments.filter(action => matchesAssessment(product, action) && (!action.guarded || !effectiveRisk?.blocks));
+      const canAct = !recheck || (recheck.actor === session.email && recheck.source !== 'scan');
+      const actions = canAct ? availableActions(product, effectiveRisk, now).filter(action => session.canApprove || action.requestable) : [];
+      const assessmentActions = canAct && operationEnabled(product.type)
+        ? assessments.filter(action => matchesAssessment(product, action) && (!action.guarded || !effectiveRisk?.blocks))
+        : [];
       const visibleProposal = session.role !== 'staff' || proposal?.actor === session.email ? proposal : undefined;
       const owner = session.role !== 'staff' || createdBy === session.email ? createdBy : undefined;
-      products.push({ id, ...product, storeId, createdBy: owner, proposal: visibleProposal, risk: effectiveRisk, actions, assessmentActions });
+      const visibleRecheck = session.role !== 'staff' || recheck?.actor === session.email ? recheck : undefined;
+      const visibleEvidence = session.role !== 'staff' || owner ? evidence : undefined;
+      const expiry = product.details?.expiryDate;
+      const daysToExpiry = expiry ? (Date.parse(expiry) - Date.parse(now.slice(0, 10))) / 86_400_000 : Infinity;
+      const expiryRisk = product.expired || daysToExpiry < 0 ? 'SKT geçmiş'
+        : product.type === 'SKT' && !expiry ? 'SKT bilgisi eksik'
+        : daysToExpiry <= settings.expiryWarningDays ? (daysToExpiry ? `SKT’ye ${daysToExpiry} gün` : 'SKT bugün') : undefined;
+      products.push({ id, ...product, storeId, createdBy: owner, proposal: visibleProposal, recheck: visibleRecheck,
+        evidence: visibleEvidence, risk: effectiveRisk, expiryRisk, actions, assessmentActions });
       const { name, code, lot, department, type } = product;
       const baseLog = { id, name, code, lot, department, type, storeId };
-      if (owner && product.createdAt) logs.push({ ...baseLog, actor: owner, staff: owner, time: product.createdAt, choice: 'Kontrol kaydı oluşturuldu', reason: '', result: 'Kaydedildi' });
+      if (owner && product.createdAt) logs.push({ ...baseLog, actor: owner, staff: owner, time: product.createdAt,
+        choice: 'Kontrol kaydı oluşturuldu', reason: '', result: 'Kaydedildi', evidence: visibleEvidence });
       for (const decision of decisions) {
         if (session.role !== 'staff' || decision.actor === session.email || decision.requestedBy === session.email) {
           logs.push({ ...baseLog, result: decision.choice, ...decision });
@@ -1067,17 +1127,19 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     throw new RequestError(404, 'İstek adresi bulunamadı.');
   }
 
-  function scanLot(recordsForBarcode, lot, settings, now, recalls) {
+  function scanLot(recordsForBarcode, lot, settings, now, recalls, requester) {
     const lotRecords = recordsForBarcode.filter(item => item.lot === lot);
-    const product = lotRecords.find(item => item.type === 'SKT') ?? lotRecords[0];
+    const product = lotRecords.find(item => operationEnabled(item.type) && item.recheck?.source === 'scan' && item.recheck.actor === requester)
+      ?? lotRecords.find(item => item.type === 'SKT') ?? lotRecords.find(item => operationEnabled(item.type));
     if (!product) return null;
     const expiryDate = lotRecords.map(item => item.details?.expiryDate).filter(Boolean).sort()[0] ?? null;
     const rksBlocked = recordsForBarcode.some(item => item.type === 'RKS Blokaj' && (item.lot === lot || settings.blockRksAcrossLots));
     const blocked = rksBlocked || lotRecords.some(item => productRisk(item, now, settings)?.blocks) ||
       recalls?.has(trace.traceLotKey(traceKey(product)));
     const quantity = product.type === 'Depo Fark' ? product.details?.systemStock : product.qty;
-    const choices = assessments.filter(action => matchesAssessment(product, action) && (!action.guarded || !blocked))
-      .map(action => action.choice);
+    const choices = !product.recheck || product.recheck.actor === requester
+      ? assessments.filter(action => matchesAssessment(product, action) && (!action.guarded || !blocked)).map(action => action.choice)
+      : [];
     return {
       id: product._id, name: product.name, barcode: product.code, productCode: product.productCode ?? product.code, lot,
       expiryDate, rksBlocked, expired: lotRecords.some(item => item.expired) || Boolean(expiryDate && expiryDate < now.slice(0, 10)),
@@ -1097,9 +1159,39 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
         records.find({ ...accessScope(session), code: { $in: trace.barcodeVariants(barcode) } }).sort({ createdAt: -1, _id: -1 }).toArray(),
         trace.openRecallKeys(coreRecallScope(session), barcode),
       ]);
-      for (const lot of new Set(entries.map(item => item.lot))) found.push(scanLot(entries, lot, settings, now, recalls));
+      for (const lot of new Set(entries.map(item => item.lot))) {
+        const result = scanLot(entries, lot, settings, now, recalls, session.email);
+        if (result) found.push(result);
+      }
     }
     return { products: found, today: now.slice(0, 10) };
+  }
+
+  async function scanLite(request, response, session) {
+    const options = new URL(request.url, 'http://localhost').searchParams;
+    const storeId = session.role === 'admin' && options.has('store')
+      ? await requiredStore(options.get('store')) : session.storeId;
+    if (request.method === 'POST') {
+      requireAdmin(session);
+      const body = await readJson(request);
+      const barcode = trace.traceBarcode(requiredText(body, 'barcode', 'Barkod', 80));
+      const name = requiredText(body, 'name', 'Ürün adı', 150);
+      await pilotCatalog.updateOne({ _id: JSON.stringify([storeId, barcode]) },
+        { $set: { barcode, name, storeId } }, { upsert: true });
+      return json(response, 200, { barcode, name });
+    }
+    if (request.method !== 'GET') throw new RequestError(405, 'Bu yöntem desteklenmiyor.');
+    const code = requiredText({ code: options.get('code') }, 'code', 'Barkod', 80);
+    const barcode = trace.traceBarcode(code);
+    const [catalog, matches] = await Promise.all([
+      pilotCatalog.findOne({ _id: JSON.stringify([storeId, barcode]) }),
+      records.find({ ...storeScope(storeId), code: { $in: trace.barcodeVariants(code) } },
+        { projection: { name: 1, code: 1, lot: 1, type: 1, status: 1 } }).sort({ createdAt: -1, _id: -1 }).toArray(),
+    ]);
+    json(response, 200, {
+      catalog: catalog ? { barcode: catalog.barcode, name: catalog.name } : null,
+      records: matches.map(({ _id, name, code, lot, type, status }) => ({ id: _id, name, barcode: code, lot, type, status })),
+    });
   }
 
   function scanCheckDetails(body) {
@@ -1167,7 +1259,7 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
       return;
     }
     if (request.method === 'POST' && path === '/api/scan/requests') {
-      const body = await readJson(request);
+      const body = await readJson(request, evidenceBodyLimit);
       if (!isRecordId(body.productId)) throw new RequestError(400, 'Geçerli bir ürün ve lot seçin.');
       const check = scanCheckDetails(body);
       const selected = await records.findOne({ _id: body.productId, ...accessScope(session) });
@@ -1175,7 +1267,9 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
       const { products } = await scanLookup(session, selected.code);
       const option = products.find(item => item.id === body.productId);
       if (!option || !option.choices.includes(body.choice)) throw new RequestError(409, 'Bu ürün ve lot için geçerli bir karar önerisi seçin.');
-      const requestId = await saveDecision(body.productId, { choice: body.choice, reason: body.reason, kind: 'assessment' }, session, undefined, check);
+      const requestId = await saveDecision(body.productId, {
+        choice: body.choice, reason: body.reason, kind: 'assessment', evidence: body.evidence,
+      }, session, undefined, check);
       json(response, 201, { requestId });
       return;
     }
@@ -1191,12 +1285,19 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     const filter = { _id: id, ...accessScope(session) };
     const product = await records.findOne(filter);
     if (!product) throw new RequestError(404, 'Ürün kaydı bulunamadı.');
+    requireEnabledOperation(product.type);
     const action = isAssessment
       ? assessments.find(option => option.choice === choice)
       : operationAction(product, choice);
     if (!action) throw new RequestError(400, 'Bu operasyon için geçerli bir karar seçin.');
-    const writeOptions = action.guarded ? { beforeUpdate: client => trace.assertNoRecall(client, traceKey(product)) } : undefined;
+    requireEnabledOperation(action.operation);
     const proposing = !session.canApprove || body.submitAsProposal === true;
+    const returned = product.recheck;
+    if (returned && (!proposing || returned.actor !== session.email || (returned.source === 'scan' && !scanCheck))) {
+      throw new RequestError(409, 'Ek kontrolü talep sahibi kendi kontrol akışından yeniden göndermelidir.');
+    }
+    if (returned) filter['recheck.id'] = returned.id;
+    else filter.recheck = null;
     if (proposing && !isAssessment && !action.requestable) {
       throw new RequestError(403, 'Bu operasyonu yalnızca onay yetkisi olan hesaplar yürütebilir.');
     }
@@ -1228,6 +1329,12 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     filter.details = product.details ? { $exists: true } : { $exists: false };
     const update = isAssessment ? { assessment: status } : { status };
     const decision = { time: new Date(), choice, result: status, staff, actor: session.email, reason };
+    const evidence = readEvidence(body.evidence, session);
+    if (evidence) decision.evidence = evidence.reference;
+    const writeOptions = {
+      beforeUpdate: action.guarded ? client => trace.assertNoRecall(client, traceKey(product)) : undefined,
+      afterWrite: evidence?.afterWrite,
+    };
     if (scan) Object.assign(decision, { source: 'scan', scanCheck: scan });
     else if (proposal?.source) decision.source = proposal.source;
     if (isAssessment) decision.kind = kind;
@@ -1244,11 +1351,14 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     }
     if (proposing) {
       const requestId = newRecordId();
-      if (scan) Object.assign(decision, { requestId, requestStatus: 'pending' });
+      Object.assign(decision, { requestId, requestStatus: 'pending' });
+      if (returned) decision.followupOf = returned.id;
       const proposal = { ...decision, id: requestId, result: 'Onay bekliyor' };
-      const saved = await records.updateOne({ ...filter, proposal: null }, {
+      const change = {
         $set: { proposal }, $push: { decisions: { ...decision, kind: 'proposal', result: 'Onay bekliyor' } },
-      }, writeOptions);
+      };
+      if (returned) change.$unset = { recheck: '' };
+      const saved = await records.updateOne({ ...filter, proposal: null }, change, writeOptions);
       if (!saved.matchedCount) throw new RequestError(409, 'Kayıt değişti veya bu kayıt için zaten bekleyen bir talep var.');
       return requestId;
     }
@@ -1256,7 +1366,7 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
       filter['proposal.id'] = proposalId;
       decision.requestedBy = product.proposal?.actor;
       decision.result = `Onaylandı · ${status}`;
-      if (scan) Object.assign(decision, { requestId: proposalId, requestStatus: 'approved' });
+      Object.assign(decision, { requestId: proposalId, requestStatus: 'approved', requestedAt: proposal?.time });
     } else {
       filter.proposal = null;
     }
@@ -1274,22 +1384,27 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
   async function reviewProposal(id, body, session) {
     if (!session.canApprove) throw new RequestError(403, 'Talep değerlendirmek için onay yetkisi gerekir.');
     const reason = requiredText(body, 'reason', 'İnceleme gerekçesi', 1000);
-    if (!['approve', 'reject'].includes(body.outcome) || !/^[a-f0-9]{24}$/.test(body.proposalId ?? '')) {
+    if (!['approve', 'reject', 'recheck'].includes(body.outcome) || !isRecordId(body.proposalId)) {
       throw new RequestError(400, 'Geçerli bir talep ve karar seçin.');
     }
     const filter = { _id: id, ...accessScope(session), 'proposal.id': body.proposalId };
     const product = await records.findOne(filter);
     if (!product) throw new RequestError(404, 'Bekleyen talep bulunamadı.');
-    const { choice, kind, destination, actor, scanCheck, source } = product.proposal;
+    requireEnabledOperation(product.type);
+    const { choice, kind, destination, actor, scanCheck, source, time: requestedAt } = product.proposal;
     if (body.outcome === 'approve') {
       await saveDecision(id, { choice, kind, destination, staff: session.email, reason }, session, body.proposalId);
       return;
     }
+    const recheck = body.outcome === 'recheck';
+    const time = new Date();
     const result = await records.updateOne(filter, {
       $unset: { proposal: '' },
-      $push: { decisions: { choice, reason, kind: 'review', result: 'Reddedildi', actor: session.email, staff: session.email, requestedBy: actor, time: new Date(),
-        ...(source && { source }),
-        ...(scanCheck && { source: 'scan', scanCheck, requestId: body.proposalId, requestStatus: 'rejected' }) } },
+      ...(recheck && { $set: { recheck: { id: body.proposalId, actor, choice, kind, reason, source, time } } }),
+      $push: { decisions: { choice, reason, kind: 'review', result: recheck ? 'Ek kontrol istendi' : 'Reddedildi',
+        actor: session.email, staff: session.email, requestedBy: actor, time, requestedAt,
+        requestId: body.proposalId, requestStatus: recheck ? 'recheck' : 'rejected',
+        ...(source && { source }), ...(scanCheck && { source: 'scan', scanCheck }) } },
     });
     if (!result.matchedCount) throw new RequestError(409, 'Talep başka bir oturumda değerlendirildi.');
   }
@@ -1304,6 +1419,7 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     if (session.role === 'staff') filter.createdBy = session.email;
     const product = await records.findOne(filter);
     if (!product) throw new RequestError(409, 'Kayıt bulunamadı veya operasyon bilgileri tamamlanmış.');
+    requireEnabledOperation(product.type);
     const operation = operations[product.type];
     const details = operationDetails(operation, body.details ?? {});
     const update = { details, status: operation.initial };
@@ -1318,6 +1434,7 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
   async function handleApi(request, response, path, session) {
     if (path === '/api/trace' || path.startsWith('/api/trace/')) return handleTrace(request, response, path, session);
     if (session.role === 'trace') throw new RequestError(403, 'Bu hesap MU TRACE’e erişebilir.');
+    if (path === '/api/scan-lite') return scanLite(request, response, session);
     if (path === '/api/scan' || path.startsWith('/api/scan/')) {
       if (!scanEnabled(session)) throw new RequestError(404, 'Bu modül şu anda kullanıma açık değil.');
       return handleScan(request, response, path, session, new URL(request.url, 'http://localhost').searchParams);
@@ -1336,7 +1453,9 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     if (path.startsWith('/api/admin/')) return handleManagement(request, response, path, session);
     if (path.startsWith('/api/manager/')) return handleManagerAccounts(request, response, path, session);
     if (request.method === 'GET' && path === '/api/operations') {
-      json(response, 200, operations);
+      json(response, 200, crossDockEnabled() ? operations : {
+        ...operations, [crossDock]: { ...operations[crossDock], disabled: true },
+      });
       return;
     }
     if (request.method === 'GET' && path === '/api/state') {
@@ -1354,17 +1473,22 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
       return;
     }
     if (request.method === 'POST' && path === '/api/products') {
-      const body = await readJson(request);
+      const body = await readJson(request, evidenceBodyLimit);
       const product = await newProduct(body);
       product.storeId = session.role === 'admin' ? await requiredStore(body.storeId ?? session.storeId) : session.storeId;
       product.createdBy = session.email;
-      const result = await records.insertOne(product);
+      const evidence = readEvidence(body.evidence, session);
+      if (evidence) product.evidence = evidence.reference;
+      const result = await records.insertOne(product, evidence?.afterWrite);
       json(response, 201, { id: result.insertedId });
       return;
     }
+    const evidence = path.match(/^\/api\/products\/([0-9a-f]{24})\/evidence\/([0-9a-f]{24})$/);
+    if (request.method === 'GET' && evidence) return showEvidence(response, session, evidence[1], evidence[2]);
     const product = path.match(/^\/api\/products\/([0-9a-f]{24})$/);
     if (request.method === 'DELETE' && product) {
       requireAdmin(session);
+      if (!crossDockEnabled()) requireEnabledOperation((await records.findOne({ _id: product[1] }))?.type);
       const result = await records.deleteOne({ _id: product[1] });
       if (!result.deletedCount) throw new RequestError(404, 'Ürün kaydı bulunamadı.');
       response.writeHead(204).end();
@@ -1372,7 +1496,7 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     }
     const decision = path.match(/^\/api\/products\/([0-9a-f]{24})\/decisions$/);
     if (request.method === 'POST' && decision) {
-      await saveDecision(decision[1], await readJson(request), session);
+      await saveDecision(decision[1], await readJson(request, evidenceBodyLimit), session);
       response.writeHead(204).end();
       return;
     }
@@ -1392,8 +1516,10 @@ function createCore(database, challenge, { scanEnabled, testerEmail }, trace, tr
     if (request.method === 'POST' && reclassify) {
       if (session.role === 'staff') throw new RequestError(403, 'Reyon atamak için yönetici yetkisi gerekir.');
       const { department } = await readJson(request);
+      const filter = { _id: reclassify[1], department: null, ...accessScope(session) };
+      if (!crossDockEnabled()) requireEnabledOperation((await records.findOne(filter))?.type);
       const result = await records.updateOne(
-        { _id: reclassify[1], department: null, ...accessScope(session) },
+        filter,
         { $set: { department: await requiredDepartment(department) } },
       );
       if (!result.matchedCount) throw new RequestError(409, 'Kayıt bulunamadı veya reyonu zaten atanmış.');

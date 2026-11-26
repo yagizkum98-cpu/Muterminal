@@ -35,6 +35,18 @@ CREATE TABLE IF NOT EXISTS products (
 );
 CREATE INDEX IF NOT EXISTS products_store_barcode_lot_idx ON products (store_id, barcode, lot);
 
+CREATE TABLE IF NOT EXISTS pilot_catalog (
+  id text PRIMARY KEY,
+  document jsonb NOT NULL CHECK (jsonb_typeof(document) = 'object')
+);
+
+CREATE TABLE IF NOT EXISTS product_evidence (
+  id text PRIMARY KEY CHECK (id ~ '^[0-9a-f]{24}$'),
+  product_id text NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  actor text NOT NULL,
+  photo bytea NOT NULL CHECK (octet_length(photo) BETWEEN 4 AND 524288)
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash text PRIMARY KEY,
   account_key text NOT NULL,

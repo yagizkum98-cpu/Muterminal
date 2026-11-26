@@ -32,6 +32,8 @@ const calendarTimeFormat = new Intl.DateTimeFormat('sv-SE', { timeZone, hour: '2
 const historyModule = 'history';
 const decisionModule = 'mudecision';
 const dashboardModule = 'dashboard';
+const approvalModule = 'approval-lite';
+const scanModule = 'scan-lite';
 const managementModule = 'management';
 const staffManagementModule = 'staff-management';
 const unassignedDepartment = 'unassigned';
@@ -276,10 +278,18 @@ function traceLink(product) {
   return `<a class="trace-record-link" href="/trace?${escapeHtml(params.toString())}">MU TRACE</a>`;
 }
 
+function evidenceLink(productId, evidence) {
+  if (!evidence) return '';
+  const params = new URLSearchParams({ panel: panel.role });
+  if ($('core-panel').dataset.mobile === '1') params.set('mobil', '1');
+  const url = `/api/products/${encodeURIComponent(productId)}/evidence/${encodeURIComponent(evidence.id)}?${params}`;
+  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(t(evidence.category))} · ${escapeHtml(t('Fotoğrafı aç'))}</a>`;
+}
+
 function rowActions(product) {
   const id = escapeHtml(product.id);
   const actions = [];
-  if (!product.details && (panel.role !== 'staff' || product.createdBy === panel.email)) {
+  if (!operations[product.type].disabled && !product.details && (panel.role !== 'staff' || product.createdBy === panel.email)) {
     actions.push(`<button type="button" data-action="edit" data-id="${id}">${escapeHtml(t("Bilgileri tamamla"))}</button>`);
   } else if (panel.canApprove && product.type === 'Geçici Blokaj' && product.locked && !product.proposal) {
     const available = product.actions.some(action => action.releaseTemporary);
@@ -288,12 +298,12 @@ function rowActions(product) {
   } else if (!product.proposal && product.actions.length) {
     actions.push(`<button type="button" data-action="decide" data-id="${id}">${panel.canApprove ? t("Operasyon kararı") : t("Operasyon talebi")}</button>`);
   }
-  if (!product.proposal) actions.push(`<button type="button" class="secondary" data-action="assessment" data-id="${id}">${panel.canApprove ? t("MuDecision kararı") : t("MuDecision önerisi")}</button>`);
+  if (!product.proposal && product.assessmentActions.length) actions.push(`<button type="button" class="secondary" data-action="assessment" data-id="${id}">${panel.canApprove ? t("MuDecision kararı") : t("MuDecision önerisi")}</button>`);
   actions.push(
     `<button type="button" class="secondary" data-action="trace" data-id="${id}">${escapeHtml(t("Lot geçmişi"))}</button>`,
     traceLink(product),
   );
-  if (panel.role === 'admin') actions.push(deleteButton(product));
+  if (panel.role === 'admin' && !operations[product.type].disabled) actions.push(deleteButton(product));
   return actions.join('');
 }
 
@@ -331,12 +341,12 @@ function renderDecisionFiles() {
           <tbody>${file.map(record => `
             <tr>
               <th scope="row">${escapeHtml(operations[record.type].title)}<br><small>${escapeHtml(departmentLabel(record.department))}</small></th>
-              <td class="details">${renderDetails(record)}</td>
+              <td class="details">${renderDetails(record)}${evidenceLink(record.id, record.evidence)}</td>
               <td>${renderProductStatus(record)}</td>
               <td><div class="actions">
-                ${record.proposal ? '' : `<button type="button" data-action="assessment" data-id="${escapeHtml(record.id)}">${panel.canApprove ? t("MuDecision kararı") : t("MuDecision önerisi")}</button>`}
+                ${!record.proposal && record.assessmentActions.length ? `<button type="button" data-action="assessment" data-id="${escapeHtml(record.id)}">${panel.canApprove ? t("MuDecision kararı") : t("MuDecision önerisi")}</button>` : ''}
                 <button type="button" class="secondary" data-action="open-operation" data-id="${escapeHtml(record.id)}">${escapeHtml(t("Operasyon kaydına git"))}</button>
-                ${panel.role === 'admin' ? deleteButton(record) : ''}
+                ${panel.role === 'admin' && !operations[record.type].disabled ? deleteButton(record) : ''}
               </div></td>
             </tr>`).join('')}</tbody>
         </table>
@@ -389,11 +399,11 @@ function renderRows() {
       <td>${escapeHtml(product.name)}<br><small>${escapeHtml(storeName(product.storeId))} · ${escapeHtml(departmentLabel(product.department))}${Number.isFinite(time) ? ` · ${calendarTimeFormat.format(time)}` : ''}</small></td>
       <td>${escapeHtml(product.code)}<br><small>${escapeHtml(product.lot)}</small></td>
       <td>${escapeHtml(quantity == null ? '—' : product.type === 'Depo Fark' ? signed(quantity) : quantity)}</td>
-      <td class="details">${renderDetails(product)}</td>
+      <td class="details">${renderDetails(product)}${evidenceLink(product.id, product.evidence)}</td>
       <td>${renderProductStatus(product)}</td>
       <td>
         <div class="actions">${rowActions(product)}</div>
-        ${product.department == null && panel.role !== 'staff' ? `<form class="department-assignment" data-product="${escapeHtml(product.id)}">
+        ${product.department == null && panel.role !== 'staff' && !operations[product.type].disabled ? `<form class="department-assignment" data-product="${escapeHtml(product.id)}">
           <select name="department" aria-label="${escapeHtml(t('{product} için reyon', { product: product.name }))}" required>${options}</select>
           <button type="submit" class="secondary">${escapeHtml(t("Reyon ata"))}</button>
         </form>` : ''}
@@ -430,7 +440,7 @@ function renderHistory() {
       <td>${escapeHtml(log.name)}<br><small>${escapeHtml(storeName(log.storeId))} · ${escapeHtml(log.code)} · ${escapeHtml(log.lot)} · ${escapeHtml(departmentLabel(log.department))}</small></td>
       <td>${escapeHtml(t(operations[log.type]?.title ?? log.type))}</td>
       <td>${escapeHtml(log.staff)}${log.actor ? `<br><small>${escapeHtml(log.actor)}</small>` : ''}</td>
-      <td>${log.kind === 'assessment' ? '<small>MuDecision</small><br>' : ''}${escapeHtml(t(log.choice))}<br><small>${escapeHtml(log.reason)}</small></td>
+      <td>${log.kind === 'assessment' ? '<small>MuDecision</small><br>' : ''}${escapeHtml(t(log.choice))}<br><small>${escapeHtml(log.reason)}</small><br>${evidenceLink(log.id, log.evidence)}</td>
       <td>${escapeHtml(t(log.result))}${log.destination ? `<br><small>${escapeHtml(log.destination)}</small>` : ''}</td>
     </tr>`).join('') || ("<tr><td colspan=\"6\">" + escapeHtml(t("Karar kaydı bulunamadı")) + "</td></tr>");
 }
@@ -462,26 +472,87 @@ function renderDashboard() {
   $('report-rows').innerHTML = rows.map(row => `
     <tr><th scope="row">${escapeHtml(row.name)}</th><td>${row.entries}</td><td>${row.decisions}</td><td>${row.pending}</td></tr>`
   ).join('') || ("<tr><td colspan=\"4\">" + escapeHtml(t("Henüz raporlanacak işlem yok.")) + "</td></tr>");
-  const pending = products.filter(product => inDepartment(product) && (product.proposal || product.status === 'Onay bekliyor'));
+  const controls = products.filter(product => inDepartment(product) && !product.scanExample);
+  const activity = pilotActivity();
+  const scanChecks = activity.filter(log => log.kind === 'proposal' && log.scanCheck).length;
+  const durations = activity.filter(log => log.requestStatus && log.requestStatus !== 'pending' && log.requestedAt)
+    .map(log => Date.parse(log.time) - Date.parse(log.requestedAt))
+    .filter(duration => Number.isFinite(duration) && duration >= 0);
+  const minutes = durations.length ? durations.reduce((total, duration) => total + duration, 0) / durations.length / 60_000 : null;
+  const risks = new Map();
+  for (const record of controls.filter(product => product.expiryRisk)) {
+    const key = JSON.stringify([record.storeId, record.code, record.lot]);
+    const earlier = risks.get(key);
+    if (!earlier || (earlier.expiryRisk !== 'SKT geçmiş' && record.expiryRisk === 'SKT geçmiş')
+      || (earlier.expiryRisk === 'SKT bilgisi eksik' && record.expiryRisk !== 'SKT bilgisi eksik')) risks.set(key, record);
+  }
+  const metrics = [
+    ['Kontrol sayısı', controls.length + scanChecks],
+    ['Bekleyen onaylar', controls.filter(record => record.proposal || record.status === 'Onay bekliyor').length],
+    ['Ortalama karar süresi', minutes === null ? '—' : t('{minutes} dk', { minutes: new Intl.NumberFormat(calendarLocale, { maximumFractionDigits: 1 }).format(minutes) })],
+    ['SKT riskleri', risks.size],
+  ];
+  $('pilot-metrics').innerHTML = metrics.map(([label, value]) => `<div class="card"><small>${escapeHtml(t(label))}</small><b>${escapeHtml(value)}</b></div>`).join('');
+  $('pilot-risks').innerHTML = [...risks.values()].map(record => {
+    const date = record.details?.expiryDate;
+    return `<li><strong>${escapeHtml(record.name)}</strong> · ${escapeHtml(storeName(record.storeId))} · ${escapeHtml(record.lot)}
+      · ${escapeHtml(t(record.expiryRisk))}${date && Number.isFinite(Date.parse(date)) ? ` · ${escapeHtml(detailDateFormat.format(new Date(date)))}` : ''}
+      <button type="button" class="secondary" data-action="open-operation" data-id="${escapeHtml(record.id)}">${escapeHtml(t('Operasyon kaydına git'))}</button></li>`;
+  }).join('') || `<li>${escapeHtml(t('SKT riski bulunamadı.'))}</li>`;
+  renderPilotHistory(activity);
+}
+
+function pilotActivity() {
+  const exampleIds = new Set(products.filter(product => product.scanExample).map(product => product.id));
+  return logs.filter(log => inDepartment(log) && !exampleIds.has(log.id));
+}
+
+function renderPilotHistory(activity = pilotActivity()) {
+  const query = $('pilot-history-search').value.trim().toLocaleLowerCase('tr');
+  const matches = activity.filter(log => [log.name, log.code, log.lot].join(' ').toLocaleLowerCase('tr').includes(query));
+  $('pilot-history').innerHTML = matches.slice(0, 50).map(log => `<tr>
+    <td>${escapeHtml(dateFormat.format(new Date(log.time)))}</td>
+    <td>${escapeHtml(log.name)}<br><small>${escapeHtml(log.code)} · ${escapeHtml(log.lot)}</small></td>
+    <td>${escapeHtml(t(operations[log.type]?.title ?? log.type))}</td>
+    <td>${escapeHtml(t(log.result))}</td>
+    <td><button type="button" class="secondary" data-action="trace" data-id="${escapeHtml(log.id)}">${escapeHtml(t('Lot geçmişi'))}</button></td>
+  </tr>`).join('') || `<tr><td colspan="5">${escapeHtml(t('Kayıt bulunamadı'))}</td></tr>`;
+  $('pilot-history-limit').hidden = matches.length <= 50;
+}
+
+function renderApproval() {
+  const scoped = products.filter(inDepartment);
+  const pending = scoped.filter(product => product.proposal || product.recheck || (panel.role !== 'staff' && product.status === 'Onay bekliyor'));
+  const drafts = new Map([...$('approval-list').querySelectorAll('form[data-proposal]')]
+    .map(form => [form.dataset.proposal, form.elements.reason.value]));
   $('approval-list').innerHTML = pending.map(product => {
     const id = escapeHtml(product.id);
     const proposal = product.proposal;
+    const returned = product.recheck;
     const scan = proposal?.scanCheck;
     const scanRks = { clear: 'Kontrol edildi, blokaj görülmedi', blocked: 'Blokaj görüldü', unknown: 'Doğrulanamadı' };
     const scanPackaging = { intact: 'Sağlam', damaged: 'Hasarlı', unknown: 'Kontrol edilemedi' };
     return `<article class="approval-item"${proposal ? ` id="talep-${escapeHtml(proposal.id)}" tabindex="-1"` : ''}>
       <h3>${escapeHtml(product.name)}</h3>
       <p>${escapeHtml(storeName(product.storeId))} · ${escapeHtml(t(operations[product.type].title))} · ${escapeHtml(t('Lot'))} ${escapeHtml(product.lot)}</p>
-      ${proposal ? `<p><strong>${escapeHtml(t(proposal.choice))}</strong> · ${escapeHtml(proposal.actor)}</p><p>${escapeHtml(proposal.reason)}</p>` : ("<p>" + escapeHtml(t("Depo farkı onay bekliyor.")) + "</p>")}
+      ${proposal ? `<p><strong>${escapeHtml(t(proposal.choice))}</strong> · ${escapeHtml(proposal.actor)}</p><p>${escapeHtml(proposal.reason)}</p>
+        <p>${evidenceLink(product.id, proposal.evidence ?? product.evidence)}</p>` : returned
+        ? `<p><strong>${escapeHtml(t('Ek kontrol istendi'))}</strong> · ${escapeHtml(returned.actor)}</p><p>${escapeHtml(returned.reason)}</p>`
+        : ("<p>" + escapeHtml(t("Depo farkı onay bekliyor.")) + "</p>")}
       ${scan ? `<p class="scan-check-summary"><strong>${panel.scanEnabled ? t("MuTerminal Scan kontrolü") : t("Kontrol sonuçları")}</strong> · RKS ${escapeHtml(t(scanRks[scan.rks]))} · ${escapeHtml(t('SKT'))} ${escapeHtml(scan.expiryDate?.split('-').reverse().join('.') ?? t('Okunamadı'))} · ${escapeHtml(t('Ambalaj'))} ${escapeHtml(t(scanPackaging[scan.packaging]))} · ${escapeHtml(t('{qty} adet', { qty: scan.quantity }))}</p>` : ''}
       <p><button type="button" class="secondary" data-action="open-operation" data-id="${id}">${escapeHtml(t("Operasyon kaydına git"))}</button></p>
-      ${proposal && panel.canApprove ? `<form data-review="${id}" data-proposal="${escapeHtml(proposal.id)}">
+      ${returned?.actor === panel.email && !operations[product.type].disabled
+        ? returned.source === 'scan'
+          ? panel.scanEnabled ? `<p><a href="/staff/scan?code=${encodeURIComponent(product.code)}&amp;lot=${encodeURIComponent(product.lot)}${$('core-panel').dataset.mobile === '1' ? '&amp;mobil=1' : ''}">${escapeHtml(t('Ek kontrol kaydet'))}</a></p>` : ''
+          : `<p><button type="button" data-action="recheck" data-id="${id}">${escapeHtml(t('Ek kontrol kaydet'))}</button></p>` : ''}
+      ${proposal && panel.canApprove && !operations[product.type].disabled ? `<form data-review="${id}" data-proposal="${escapeHtml(proposal.id)}">
         <label for="review-${id}">${escapeHtml(t("İnceleme gerekçesi"))}</label>
-        <textarea id="review-${id}" name="reason" maxlength="1000" required></textarea>
-        <div class="actions"><button type="submit" value="approve">${escapeHtml(t("Onayla"))}</button><button type="submit" value="reject" class="secondary">${escapeHtml(t("Reddet"))}</button></div>
+        <textarea id="review-${id}" name="reason" maxlength="1000" required>${escapeHtml(drafts.get(proposal.id) ?? '')}</textarea>
+        <div class="actions"><button type="submit" value="approve">${escapeHtml(t("Onayla"))}</button><button type="submit" value="reject" class="secondary">${escapeHtml(t("Reddet"))}</button><button type="submit" value="recheck" class="secondary">${escapeHtml(t('Ek kontrol iste'))}</button></div>
       </form>` : ''}
     </article>`;
   }).join('') || ("<p>" + escapeHtml(t("Bekleyen talep yok.")) + "</p>");
+  if (activeModule === approvalModule) renderApprovalHistory();
   if (panel.scanEnabled && !handoffFocused && handoffId && /^[a-f0-9]{24}$/.test(handoffId)) {
     const handoff = $(`talep-${handoffId}`);
     if (handoff) {
@@ -490,6 +561,18 @@ function renderDashboard() {
       handoff.scrollIntoView({ block: 'center' });
     }
   }
+}
+
+function renderApprovalHistory() {
+  $('approval-history').innerHTML = logs.filter(log => inDepartment(log) && (
+    log.requestStatus || log.kind === 'proposal' || log.kind === 'review' || log.requestedBy
+  )).map(log => `<tr>
+    <td>${escapeHtml(dateFormat.format(new Date(log.time)))}</td>
+    <td>${escapeHtml(log.name)} · ${escapeHtml(log.lot)}</td>
+    <td>${escapeHtml(log.staff ?? log.actor)}</td>
+    <td>${escapeHtml(t(log.choice))}<br><small>${escapeHtml(log.reason)}</small><br>${evidenceLink(log.id, log.evidence)}</td>
+    <td>${escapeHtml(t(log.result))}</td>
+  </tr>`).join('') || `<tr><td colspan="5">${escapeHtml(t('Karar kaydı bulunamadı'))}</td></tr>`;
 }
 
 function configureStores() {
@@ -602,6 +685,7 @@ function renderEntry(product) {
   $('entry-store').value = activeStore || panel.storeId;
   $('save-product').textContent = product ? t("Bilgileri kaydet") : t("Ürünü kaydet");
   $('cancel-edit').hidden = !product;
+  $('entry-evidence').hidden = Boolean(product);
   $('quantity-label').textContent = t(quantityLabel);
   $('quantity-column').textContent = t(operationQuantityLabel(activeModule));
   $('quantity-field').hidden = stockCount;
@@ -621,9 +705,12 @@ function selectModule(type, product) {
   const isHistory = type === historyModule;
   const isDecision = type === decisionModule;
   const isDashboard = type === dashboardModule;
+  const isApproval = type === approvalModule;
+  const isScan = type === scanModule;
   const isManagement = type === managementModule;
   const isStaffManagement = type === staffManagementModule;
   const isOperation = Object.hasOwn(operations, type);
+  const isReadOnly = isOperation && operations[type].disabled;
   activeModule = type;
   renderCalendar();
   lotFilter = product;
@@ -632,13 +719,16 @@ function selectModule(type, product) {
   for (const button of $('modules').querySelectorAll('button')) {
     button.setAttribute('aria-pressed', String(button.dataset.module === type));
   }
+  document.dispatchEvent(new CustomEvent('muterminal:module', { detail: type }));
   $('decision-files-panel').hidden = !isDecision;
   $('dashboard-panel').hidden = !isDashboard;
+  $('approval-panel').hidden = !isDashboard && !isApproval;
+  $('approval-history-panel').hidden = !isApproval;
   $('management-panel').hidden = !isManagement;
   $('staff-management-panel').hidden = !isStaffManagement;
-  $('stats').hidden = isDecision || isManagement || isStaffManagement || panel.role === 'staff';
+  $('stats').hidden = isDecision || isManagement || isStaffManagement || isApproval || isScan || panel.role === 'staff';
   $('module-header').hidden = !isOperation && !isHistory;
-  $('entry-panel').hidden = !isOperation;
+  $('entry-panel').hidden = !isOperation || isReadOnly;
   $('records-panel').hidden = !isOperation;
   $('decision').hidden = true;
   $('history-panel').hidden = !isHistory;
@@ -648,8 +738,14 @@ function selectModule(type, product) {
   }
   if (isDashboard) {
     renderDashboard();
+    renderApproval();
     return;
   }
+  if (isApproval) {
+    renderApproval();
+    return;
+  }
+  if (isScan) return;
   if (isManagement) {
     loadManagement().catch(error => showStatus('management-status', error.message, true));
     return;
@@ -665,7 +761,7 @@ function selectModule(type, product) {
   } : operations[type];
   $('module-title').textContent = t(module.title);
   $('module-feature').textContent = module.feature;
-  $('module-description').textContent = t(module.description);
+  $('module-description').textContent = t(isReadOnly ? 'Cross-Dock sonraki geliştirme aşamasında kullanıma açılacak.' : module.description);
   $('clear-lot').hidden = !product;
   $('lot-filter').hidden = !product;
   if (product) {
@@ -677,7 +773,8 @@ function selectModule(type, product) {
   } else {
     $('search').value = '';
     showStatus('records-status', '');
-    renderEntry();
+    if (isReadOnly) $('quantity-column').textContent = t(operationQuantityLabel(type));
+    else renderEntry();
     renderRows();
   }
 }
@@ -697,7 +794,10 @@ function render() {
   $('stats').innerHTML = stats.map(([label, value]) => `<div class="card"><small>${label}</small><b>${value}</b></div>`).join('');
   if (activeModule === historyModule) renderHistory();
   else if (activeModule === decisionModule) renderDecisionFiles();
-  else if (activeModule === dashboardModule) renderDashboard();
+  else if (activeModule === dashboardModule) {
+    renderDashboard();
+    renderApproval();
+  } else if (activeModule === approvalModule) renderApproval();
   else if (Object.hasOwn(operations, activeModule)) renderRows();
   if (editingId && !products.some(product => product.id === editingId)) renderEntry();
   if (currentId) {
@@ -763,6 +863,14 @@ async function writeApi(path, method, body) {
   throw new Error(result.error || 'Kayıt işlemi tamamlanamadı.');
 }
 
+async function formEvidence(prefix) {
+  const file = $(`${prefix}-evidence-photo`).files[0];
+  const category = $(`${prefix}-evidence-category`).value;
+  if (!file && !category) return;
+  const { encodeEvidence } = await import('/mu-evidence.mjs');
+  return encodeEvidence(file, category);
+}
+
 $('product-form').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -780,7 +888,10 @@ $('product-form').addEventListener('submit', async event => {
   showStatus('product-status', 'Kaydediliyor…');
   try {
     if (id) await writeApi(`/api/products/${id}/details`, 'POST', { details });
-    else await writeApi('/api/products', 'POST', { name, code, lot, department, storeId, type: module, qty: Number(qty), expired: data.has('expired'), details });
+    else await writeApi('/api/products', 'POST', {
+      name, code, lot, department, storeId, type: module, qty: Number(qty), expired: data.has('expired'), details,
+      evidence: await formEvidence('entry'),
+    });
     if (module === activeModule && revision === entryRevision) {
       renderEntry();
       $('search').value = '';
@@ -831,6 +942,16 @@ async function deleteProduct(product, button) {
   }
 }
 
+function openOperationRecord(product) {
+  const day = recordedDay(product);
+  if (calendarDay && calendarDay !== day) selectCalendarDay(day);
+  $('search').value = '';
+  selectModule(product.type);
+  const row = $(`record-${product.id}`);
+  row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row?.focus({ preventScroll: true });
+}
+
 function handleProductAction(event) {
   const button = event.target.closest('button[data-id]');
   if (!button) return;
@@ -843,12 +964,7 @@ function handleProductAction(event) {
     return;
   }
   if (button.dataset.action === 'open-operation') {
-    const day = recordedDay(product);
-    if (calendarDay && calendarDay !== day) selectCalendarDay(day);
-    selectModule(product.type);
-    const row = $(`record-${product.id}`);
-    row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    row?.focus({ preventScroll: true });
+    openOperationRecord(product);
     return;
   }
   if (button.dataset.action === 'edit') {
@@ -858,15 +974,22 @@ function handleProductAction(event) {
   }
   if ($('decision-form').querySelector('button').disabled) return;
   currentId = product.id;
-  decisionKind = button.dataset.action === 'assessment' ? 'assessment' : undefined;
+  const returned = button.dataset.action === 'recheck' ? product.recheck : undefined;
+  decisionKind = button.dataset.action === 'assessment' || returned?.kind === 'assessment' ? 'assessment' : undefined;
   $('decision-title').textContent = decisionKind ? (panel.canApprove ? t("MuDecision kararı") : t("MuDecision önerisi")) : (panel.canApprove ? t("Operasyon kararı") : t("Operasyon talebi"));
   $('selected').textContent = `${product.name} · ${storeName(product.storeId)} · ${operations[product.type].title} · Barkod ${product.code} · Lot ${product.lot}`;
   $('proposal-field').hidden = !decisionKind || !panel.canApprove;
-  $('submit-as-proposal').checked = false;
+  $('submit-as-proposal').checked = Boolean(returned);
   $('choice').value = '';
   $('reason').value = '';
   $('destination').value = '';
+  $('decision-evidence-category').value = '';
+  $('decision-evidence-photo').value = '';
   renderDecisionChoices(product);
+  if (returned && [...$('choice').options].some(option => option.value === returned.choice)) {
+    $('choice').value = returned.choice;
+    updateDestination();
+  }
   if (button.dataset.action === 'release') {
     $('choice').value = product.actions.find(action => action.releaseTemporary).choice;
   }
@@ -880,6 +1003,31 @@ function handleProductAction(event) {
 $('records-table').addEventListener('click', handleProductAction);
 $('decision-files').addEventListener('click', handleProductAction);
 $('approval-list').addEventListener('click', handleProductAction);
+$('pilot-history').addEventListener('click', handleProductAction);
+$('pilot-risks').addEventListener('click', handleProductAction);
+$('pilot-history-search').addEventListener('input', () => renderPilotHistory());
+$('approval-new')?.addEventListener('click', () => {
+  selectModule(decisionModule);
+  $('decision-search').focus();
+});
+
+document.addEventListener('muterminal:scan-open', async event => {
+  if (!products.some(item => item.id === event.detail)) await refresh();
+  const product = products.find(item => item.id === event.detail);
+  if (!product) return;
+  if (!inDepartment(product)) selectDepartmentScope('');
+  openOperationRecord(product);
+});
+
+document.addEventListener('muterminal:scan-entry', event => {
+  const { operation, name, barcode, lot } = event.detail;
+  if (!Object.hasOwn(operations, operation) || operations[operation].disabled) return;
+  selectModule(operation);
+  $('name').value = name;
+  $('code').value = barcode;
+  $('lot').value = lot;
+  $(lot ? 'department' : 'lot').focus();
+});
 
 $('approval-list').addEventListener('submit', async event => {
   event.preventDefault();
@@ -892,7 +1040,7 @@ $('approval-list').addEventListener('submit', async event => {
     await writeApi(`/api/products/${form.dataset.review}/review`, 'POST', {
       outcome, proposalId: form.dataset.proposal, reason: new FormData(form).get('reason'),
     });
-    showStatus('review-status', outcome === 'approve' ? t("Talep onaylandı.") : t("Talep reddedildi."));
+    showStatus('review-status', { approve: 'Talep onaylandı.', reject: 'Talep reddedildi.', recheck: 'Talep ek kontrole gönderildi.' }[outcome]);
     await refresh();
   } catch (error) {
     showStatus('review-status', error.message, true);
@@ -932,11 +1080,12 @@ $('decision-form').addEventListener('submit', async event => {
     const body = Object.fromEntries(new FormData(form));
     if (decisionKind) body.kind = decisionKind;
     if (decisionKind && $('submit-as-proposal').checked) body.submitAsProposal = true;
+    body.evidence = await formEvidence('decision');
     await writeApi(`/api/products/${id}/decisions`, 'POST', body);
     if (currentId === id) {
       $('decision').hidden = true;
       currentId = null;
-      const status = activeModule === decisionModule ? 'decision-file-status' : 'records-status';
+      const status = activeModule === decisionModule ? 'decision-file-status' : activeModule === approvalModule ? 'review-status' : 'records-status';
       showStatus(status, !panel.canApprove || body.submitAsProposal ? t("Talep onaya gönderildi.") : t("Karar kaydedildi."));
     }
     await refresh();
@@ -1227,8 +1376,9 @@ async function start() {
     $('store-filter-field').hidden = panel.role !== 'admin';
     configureStores();
     const options = Object.entries(operations);
-    if (panel.role !== 'staff') $('modules').insertAdjacentHTML('afterbegin', `<button type="button" data-module="dashboard">${escapeHtml(t('Operasyon panosu'))}</button>`);
-    $('modules').insertAdjacentHTML('beforeend', options.map(([id, operation]) => (
+    if (panel.role !== 'staff') $('modules').insertAdjacentHTML('afterbegin', '<button type="button" data-module="dashboard">MuDashboard Lite</button>');
+    $('modules').insertAdjacentHTML('beforeend', '<button type="button" data-module="scan-lite">MuScan Lite</button><button type="button" data-module="approval-lite">MuApproval Lite</button>');
+    $('modules').insertAdjacentHTML('beforeend', options.filter(([, operation]) => !operation.disabled).map(([id, operation]) => (
       `<button type="button" data-module="${escapeHtml(id)}">${escapeHtml(t(operation.title))}</button>`
     )).join('') + `<button type="button" data-module="history">${panel.role === 'staff' ? t("Kendi İşlem Geçmişim") : t("Karar Geçmişi")}</button>`);
     if (panel.role === 'admin') {
@@ -1244,7 +1394,9 @@ async function start() {
       `<option value="${escapeHtml(id)}">${escapeHtml(t(operation.title))}</option>`
     )).join('');
     configureDepartments(groups);
-    selectModule(panel.role === 'staff' ? decisionModule : dashboardModule);
+    const initialModule = window.location.hash === '#muscan-lite' ? scanModule
+      : window.location.hash === '#muapproval-lite' ? approvalModule : panel.role === 'staff' ? decisionModule : dashboardModule;
+    selectModule(initialModule);
     poll();
   } catch {
     showStatus('sync-status', 'Operasyon modülleri yüklenemedi. MuTerminal sunucusunu kontrol edin.', true);

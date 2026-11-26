@@ -20,7 +20,7 @@ export interface Report {
 }
 
 export const reportTimeZone = 'Europe/Istanbul';
-const scanRequestStatus = { pending: 'Onay bekliyor', approved: 'Onaylandı', rejected: 'Reddedildi' } as const;
+const scanRequestStatus = { pending: 'Onay bekliyor', approved: 'Onaylandı', rejected: 'Reddedildi', recheck: 'Ek kontrol istendi' } as const;
 
 export interface ScanRequestRow {
   requestId: string;
