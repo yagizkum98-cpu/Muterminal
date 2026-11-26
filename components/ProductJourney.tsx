@@ -1,32 +1,43 @@
 import { useTranslate } from './LanguagePicker';
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 import styles from './ProductJourney.module.css';
 
 const stages = [
   {
-    id: 'intake', label: 'Ürün girişi', title: 'Barkodla ürün kaydı açılır',
-    summary: 'Süt kolisinin barkodu okutulur. Ürün, Süt reyonu ve teslim alınan adetle birlikte kayda girer.',
-    detail: ['Ürün', 'Süt 1 L · 12 adet'], next: 'Lotu kayda bağla',
+    id: 'lookup', label: 'Barkod', modules: ['MuScan Lite'],
+    title: 'Barkodla ürün bulunur',
+    summary: 'Personel süt kolisinin barkodunu okutur. MuScan Lite eşleşen ürünü ve mağazadaki kontrol kayıtlarını açar.',
+    fields: [['Ürün', 'Süt 1 L'], ['Barkod', '8690000000011']], next: 'Ürün kartını gör',
   },
   {
-    id: 'lot', label: 'Lot ve SKT', title: 'Lot ve SKT ürünle eşleştirilir',
-    summary: 'Koli üzerindeki lot kodu ve son kullanma tarihi işlenir. Aynı barkodun farklı lotları ayrı ayrı izlenir.',
-    detail: ['Lot', 'A-214 · SKT kontrolü gerekli'], next: 'Depo kontrolüne geç',
+    id: 'catalog', label: 'Ürün kartı', modules: ['MuProduct', 'MuStock Lite'],
+    title: 'Ürün kartı ve kaynak stok incelenir',
+    summary: 'Ürün kartındaki koli içi miktar ve depodan alınan son stok bilgisi görüntülenir.',
+    fields: [['Koli içi miktar', '12 adet'], ['Depo kodu', '0001'], ['Kaynak stok', '12 adet']], next: 'Ürün kontrolüne geç',
   },
   {
-    id: 'warehouse', label: 'Depo kontrolü', title: 'Depodaki konum ve adet kontrol edilir',
-    summary: 'Örnek depoda B-02 rafı kontrol edilir. Kayıttaki 12 adetle fiziksel sayımdaki 12 adet karşılaştırılır.',
-    detail: ['Raf B-02', '12 kayıtlı · 12 sayılan'], next: 'MuDecision’a geç',
+    id: 'check', label: 'Kontrol', modules: ['MuExpiry', 'MuEvidence'],
+    title: 'Lot, SKT ve fotoğraf kaydedilir',
+    summary: 'Personel lotu ve son kullanma tarihini kaydeder. Hasarlı ambalajın fotoğrafını kontrol kaydına ekler.',
+    fields: [['Lot', 'A-214'], ['SKT', '04.12.2026'], ['Kanıt türü', 'Hasarlı ambalaj']], next: 'MuDecision’a geç',
   },
   {
-    id: 'decision', label: 'MuDecision', title: 'Ürün ve lot için karar verilir',
-    summary: 'Personel, lot ve sayım bilgilerini aynı karar dosyasında görür. SKT ayrıca doğrulanacağı için bu lotu gerekçesiyle incelemeye gönderir.',
-    detail: ['Karar önerisi', 'İncelemede · SKT doğrulanacak'], next: 'Yönlendirmeyi gör',
+    id: 'decision', label: 'Karar talebi', modules: ['MuDecision'],
+    title: 'Personel gerekçeli inceleme talebi gönderir',
+    summary: 'Personel, A-214 lotunun karar dosyasında ambalaj hasarını gerekçe göstererek inceleme talebi oluşturur.',
+    fields: [['Karar önerisi', 'İncelemede'], ['Gerekçe', 'Ambalaj hasarı incelenecek.']], next: 'Yönetici kararını gör',
   },
   {
-    id: 'route', label: 'Yönlendirme', title: 'Koli inceleme alanına yönlendirilir',
-    summary: 'Yönetici talebi değerlendirir. Lot, örnek senaryoda inceleme alanına alınır ve karar ürün geçmişine işlenir.',
-    detail: ['Hedef', 'İnceleme alanı'], next: 'Baştan başlat',
+    id: 'approval', label: 'Yönetici onayı', modules: ['MuApproval Lite'],
+    title: 'Yönetici talebi değerlendirir',
+    summary: 'Yönetici kontrol kaydını ve fotoğrafı inceler. Bu örnekte lotun incelemede kalmasını gerekçesiyle onaylar.',
+    fields: [['Sonuç', 'Onaylandı · İncelemede'], ['Yönetici gerekçesi', 'Ambalaj kontrolü tamamlanana kadar incelemede kalsın.']], next: 'Karar geçmişini gör',
+  },
+  {
+    id: 'history', label: 'Geçmiş', modules: ['MuLog', 'MuTrace Lite'],
+    title: 'Karar ürün geçmişinde izlenir',
+    summary: 'Kontrol, talep ve yönetici onayı geçmişe işlenir. Yetkili kullanıcı ürünün kararlarını lotlar arasında inceleyebilir.',
+    fields: [['Lot', 'A-214'], ['Ürün karar geçmişi', 'Kontrol kaydı, inceleme talebi ve yönetici onayı']], next: 'Baştan başlat',
   },
 ] as const;
 
@@ -34,32 +45,17 @@ type Stage = (typeof stages)[number];
 const lastStage = stages.length - 1;
 const playbackDelay = 5_000;
 
-function Scene({ stage, position }: { stage: Stage; position: number }) {
+function RecordPreview({ stage, position }: { stage: Stage; position: number }) {
   const t = useTranslate();
-  return <div className={styles.scene} data-stage={stage.id} aria-hidden="true">
-    <div className={styles.sceneHeader}>
-      <span>{t("ÖRNEK DEPO")}</span>
-      <span>{stage.id === 'intake' ? t("SÜT 1 L") : 'LOT A-214'}</span>
+  return <div className={styles.recordPreview}>
+    <div className={styles.recordHeader}>
+      <span>{t('Örnek kayıt')}</span>
+      <strong>{stage.modules.join(' · ')}</strong>
     </div>
-    <div className={styles.floor}>
-      <div key={stage.id} className={styles.station}>
-        {stage.id === 'intake' && <div className={styles.terminal}><span /><i /></div>}
-        {stage.id === 'lot' && <div className={styles.tag}><strong>A-214</strong><span>{t("LOT / SKT")}</span></div>}
-        {stage.id === 'warehouse' && <div className={styles.shelf}>
-          <strong>B-02</strong><span /><span /><span /><span />
-        </div>}
-        {stage.id === 'decision' && <div className={styles.checklist}>
-          <strong>MuDecision</strong><span>{t("Lot kaydı")}</span><span>{t("SKT inceleme")}</span>
-        </div>}
-        {stage.id === 'route' && <div className={styles.door}><strong>{t("İNCELEME")}</strong><span /></div>}
-      </div>
-      <div className={styles.parcel}><span>{t("SÜT")}</span><i /></div>
-    </div>
-    <div className={styles.track} style={{ '--travel': `${position / lastStage * 100}%` } as CSSProperties}>
-      <span className={styles.trackProgress} />
-      {stages.map((item, index) => <i key={item.id} data-completed={index <= position} />)}
-      <span className={styles.tracker} />
-    </div>
+    <dl className={styles.details} key={stage.id}>
+      {stage.fields.map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{t(value)}</dd></div>)}
+    </dl>
+    <progress className={styles.progress} max={stages.length} value={position + 1} aria-hidden="true" />
   </div>;
 }
 
@@ -93,20 +89,19 @@ export default function ProductJourney() {
     <div className={styles.card}>
       <header className={styles.header}>
         <h2 id="product-journey-title">{t("Bir ürünün depo yolculuğu")}</h2>
-        <p>{t("Örnek bir süt kolisini kayıttan depo yönlendirmesine kadar takip edin.")}</p>
+        <p>{t("Örnek bir süt kolisini barkod sorgusundan yönetici onayına ve ürün geçmişine kadar takip edin.")}</p>
       </header>
-      <div className={styles.layout}>
-        <Scene position={position} stage={stage} />
-        <div className={styles.story} aria-live={playing ? 'off' : 'polite'} aria-atomic="true">
+      <div className={styles.layout} aria-live={playing ? 'off' : 'polite'} aria-atomic="true">
+        <RecordPreview position={position} stage={stage} />
+        <div className={styles.story}>
           <div className={styles.chapter} key={stage.id}>
             <p className={styles.counter}>{t("Adım") + " "}{position + 1} / {stages.length}</p>
             <h3>{t(stage.title)}</h3>
             <p>{t(stage.summary)}</p>
-            <dl className={styles.details}><dt>{t(stage.detail[0])}</dt><dd>{t(stage.detail[1])}</dd></dl>
           </div>
         </div>
       </div>
-      <ol className={styles.steps} aria-label={t("Depo akışı adımları")}>
+      <ol className={styles.steps} aria-label={t("Ürün kontrol akışı adımları")}>
         {stages.map((item, index) => <li key={item.id}>
           <button type="button" aria-current={index === position ? 'step' : undefined} onClick={() => selectStage(index)}>{t(item.label)}</button>
         </li>)}

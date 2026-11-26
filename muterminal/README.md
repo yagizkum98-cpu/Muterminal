@@ -23,7 +23,7 @@ MongoDB sürücüsü yalnızca aktarım aracında kullanılır. Uygulamanın ça
 
 Vercel üretim ortamında `DATABASE_URL` için Vercel’den erişilebilen bir PostgreSQL bağlantısı ve `MUTERMINAL_PUBLIC_ORIGIN` için sitenin HTTPS adresini tanımlayın. İlk yönetici hesabını oluşturmak için `MUTERMINAL_ADMIN_PASSWORD` belirleyin. Tester ve pilot yönetici hesapları isteğe bağlıdır ve sırasıyla `MUTERMINAL_TESTER_PASSWORD` ile `MUTERMINAL_MANAGER_PASSWORD` ayarlandığında oluşturulur. Aşağıdaki varsayılan pilot şifreleri yerel HTTP kurulumu içindir.
 
-Ana sayfa MuTerminal Core ve MuDecision'ı tanıtır. Modüllere erişmek için ana sayfadaki panel girişinde kullanıcı adınızı, şifrenizi ve görseldeki beş harfi girin. Pilot hesabının e-posta adresi `admin@muterminal.com` ve şifresi `1234567890`. Boş bir PostgreSQL veritabanı ilk kez hazırlanırken `MUTERMINAL_ADMIN_EMAIL` ve `MUTERMINAL_ADMIN_PASSWORD` ile hesabı tanımlayabilirsiniz. Oluşturulmuş hesapların şifre özetleri PostgreSQL’de saklanır.
+Ana sayfa, mevcut pilot modüllerini ve sonraki geliştirmeleri üç aşamalı ürün yol haritasında gösterir. Modüllere erişmek için ana sayfadaki panel girişinde kullanıcı adınızı, şifrenizi ve görseldeki beş harfi girin. Pilot hesabının e-posta adresi `admin@muterminal.com` ve şifresi `1234567890`. Boş bir PostgreSQL veritabanı ilk kez hazırlanırken `MUTERMINAL_ADMIN_EMAIL` ve `MUTERMINAL_ADMIN_PASSWORD` ile hesabı tanımlayabilirsiniz. Oluşturulmuş hesapların şifre özetleri PostgreSQL’de saklanır.
 
 `tester@muterminal.com` hesabının varsayılan şifresi `tester123!`. İlk kurulumda `MUTERMINAL_TESTER_PASSWORD` ile farklı bir başlangıç şifresi verebilirsiniz.
 
@@ -81,6 +81,10 @@ barcode,product_code,product_name,price_try,case_quantity,price_valid_from,price
 - Aktarımda 1–500 satır kabul edilir. Bir satır geçersizse aktarım uygulanmaz. Aynı depo ve barkod için eşit veya eski zamanlı stok kaydı atlanır. Ürün kartı bilgileri son başarılı katalog aktarımından alınır.
 
 Canlı ERP/WMS bağlantısı için yetkili API erişimi ve kurumsal izin gerekir. Pilot katalog elle veya CSV ile doldurulabilir.
+
+## Aşama 2 · Saha kullanımı ve entegrasyon (3–6 ay)
+
+Gelişmiş **MuScan** fiziksel kontrol ve gerekçeli karar talebi akışının saha prosedürleri doğrulandıktan sonra daha geniş personel erişimine açılması hedeflenir. **MuSync Lite** katalog ve stok aktarımını CSV üzerinden destekler. Yetkili ERP/WMS API bağlantıları bu altyapı üzerine planlanır. **MuAnalytics Lite** için satış hızı ve stok eğilimi, uygun satış ve stok verisi elde edildiğinde değerlendirilecektir.
 
 ## Aşama 3 · MuTerminal Operations (6–12 ay)
 

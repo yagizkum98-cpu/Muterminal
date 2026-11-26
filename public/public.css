@@ -87,20 +87,45 @@ a { color: var(--forest); text-underline-offset: .18em; }
 .hero-workflow li { display: flex; align-items: center; gap: .8rem; }
 .hero-workflow li + li::before { content: ''; width: .35rem; height: .35rem; border: solid #a3d7b1; border-width: 1px 1px 0 0; transform: rotate(45deg); }
 
-.modules-overview { padding-block: clamp(2.3rem, 5vw, 4rem); }
+.modules-overview { padding-block: clamp(2.3rem, 5vw, 4rem); scroll-margin-top: .75rem; }
 .modules-overview h2 { margin: 0 0 1.15rem; font-size: clamp(1.85rem, 3.7vw, 2.7rem); line-height: 1.1; letter-spacing: -.045em; }
-.module-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(.8rem, 2vw, 1.3rem); }
-.module-card { min-width: 0; padding: clamp(1.2rem, 3vw, 2.1rem); border: 1px solid var(--line); border-radius: 1.15rem; background: var(--paper); }
-.module-card-decision { background: #edf7ef; }
-.module-mark { position: relative; display: grid; place-items: center; width: 2.65rem; height: 2.65rem; margin-bottom: .85rem; border-radius: .65rem; background: var(--pale); color: var(--forest); }
-.module-mark-scan::before { content: ''; width: 1.1rem; height: .85rem; background: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 4px, currentColor 4px 5px, transparent 5px 8px); }
-.module-mark-decision { background: var(--mint); }
-.module-mark-decision::before { content: ''; width: .65rem; height: .38rem; border: solid currentColor; border-width: 0 0 2px 2px; transform: translateY(-.12rem) rotate(-45deg); }
-.module-card h3 { margin: 0; font-size: clamp(1.4rem, 2.5vw, 1.85rem); letter-spacing: -.035em; line-height: 1.16; }
-.module-card p, .module-card li { line-height: 1.55; }
-.module-card p { margin: .65rem 0 1rem; color: var(--muted); }
-.module-card ul { display: grid; gap: .43rem; margin: 0; padding: .85rem 0 0 1.15rem; border-top: 1px solid var(--line); }
-.module-card li::marker { color: var(--green); }
+.roadmap-nav {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .45rem; margin-bottom: 1.2rem;
+  padding: .5rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--pale);
+}
+.roadmap-nav a {
+  display: grid; align-content: start; gap: .12rem; padding: .65rem .9rem;
+  border-radius: .65rem; color: var(--forest); text-decoration: none;
+}
+.roadmap-nav a:hover { background: var(--paper); }
+.roadmap-nav span { color: var(--muted); font-size: .79rem; font-weight: 650; }
+.roadmap-nav strong { font-size: .95rem; }
+.roadmap-phase {
+  margin-top: 1rem; padding: clamp(1.1rem, 3vw, 2rem); border: 1px solid var(--line); border-radius: 1.15rem;
+  background: var(--paper); scroll-margin-top: 1rem;
+}
+.roadmap-phase:first-of-type { border-top: 3px solid #9ec6ad; }
+.roadmap-phase:target { border-color: #79a991; }
+.roadmap-phase-heading { margin-bottom: 1.1rem; }
+.roadmap-phase-heading h3 { margin: .22rem 0 .35rem; font-size: clamp(1.45rem, 2.8vw, 2rem); letter-spacing: -.035em; line-height: 1.15; }
+.roadmap-phase-heading p { margin: 0; color: var(--muted); }
+.roadmap-phase-heading .roadmap-period { color: var(--forest); font-size: .8rem; font-weight: 750; }
+.roadmap-groups, .roadmap-track .roadmap-module-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; align-items: start; }
+.roadmap-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "core pilot" "trace pilot"; }
+.roadmap-groups > :nth-child(1) { grid-area: core; }
+.roadmap-groups > :nth-child(2) { grid-area: pilot; }
+.roadmap-groups > :nth-child(3) { grid-area: trace; }
+.roadmap-groups .roadmap-group, .roadmap-track li { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: .8rem; background: #f8fbf8; }
+.roadmap-groups h4 { margin: 0 0 .55rem; color: var(--forest); font-size: 1rem; }
+.roadmap-module-list { list-style: none; margin: 0; padding: 0; }
+.roadmap-groups li { padding: .55rem 0; border-top: 1px solid var(--line); }
+.roadmap-groups li:last-child { padding-bottom: 0; }
+.roadmap-track .roadmap-module-list { align-items: stretch; }
+.roadmap-module-name { display: flex; flex-wrap: wrap; gap: .28rem .6rem; align-items: baseline; font-size: .96rem; }
+.roadmap-module-name a { font-weight: 750; }
+.roadmap-module-list p { margin: .18rem 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
+.roadmap-status { padding: .08rem .48rem; border-radius: 999px; background: var(--pale); color: var(--forest); font-size: .73rem; font-weight: 700; }
+.roadmap-status[data-available] { background: var(--mint); }
 
 .login-section { padding-block: clamp(1rem, 2vw, 2rem) clamp(2.3rem, 5vw, 4rem); scroll-margin-top: .75rem; }
 .login-card {
@@ -150,7 +175,11 @@ a { color: var(--forest); text-underline-offset: .18em; }
   .hero-actions { margin-top: 1.15rem; }
   .hero-visual { aspect-ratio: 1.17; border-radius: 1rem; }
   .hero-workflow { inset: auto .65rem .65rem; }
-  .module-grid, .login-card { grid-template-columns: minmax(0, 1fr); }
+  .roadmap-groups, .roadmap-track .roadmap-module-list, .login-card { grid-template-columns: minmax(0, 1fr); }
+  .roadmap-groups { grid-template-areas: "core" "pilot" "trace"; }
+  .roadmap-nav { gap: .17rem; }
+  .roadmap-nav a { padding: .45rem .25rem; }
+  .roadmap-nav strong { font-size: .82rem; line-height: 1.27; }
   .login-side p { margin-bottom: .65rem; }
   .login-panel-options { display: flex; flex-wrap: wrap; }
   .login-panel-options a { flex: 1 1 auto; justify-content: center; }

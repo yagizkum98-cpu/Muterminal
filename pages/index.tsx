@@ -3,10 +3,11 @@ import { languageFromCookie } from '../lib/language';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
 import ProductJourney from '../components/ProductJourney';
+import ModuleRoadmap from '../components/ModuleRoadmap';
 import { createChallenge, type IssuedChallenge } from '../server/challenge';
 import LoginChallenge from '../components/LoginChallenge';
 import { isPanel, loginTitles, type PanelRole } from '../server/panels';
-import { crossDockEnabled } from '../server/features';
+import { crossDockEnabled, scanEnabled } from '../server/features';
 
 const errors: Record<string, string> = {
   dogrulama: 'Doğrulama kodu hatalı veya süresi dolmuş. Yeni görseldeki harfleri girin.',
@@ -29,7 +30,7 @@ function androidApkUrl() {
   return null;
 }
 
-interface Props { role: PanelRole; loginTitle: string; error: string | null; passwordChanged: boolean; challenge: IssuedChallenge | null; handoff: string | null; mobile: boolean; apkUrl: string | null; showCrossDock: boolean }
+interface Props { role: PanelRole; loginTitle: string; error: string | null; passwordChanged: boolean; challenge: IssuedChallenge | null; handoff: string | null; mobile: boolean; apkUrl: string | null; dockAvailable: boolean; scanAvailable: boolean }
 
 export const getServerSideProps: GetServerSideProps<Props> = async ({ query, req, res }) => {
   const role = isPanel(query.panel) ? query.panel : 'admin';
@@ -42,10 +43,12 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ query, req
     if (!challenge) error = errors.limit;
   }
   catch (error) { console.error('Login challenge:', error); }
-  return { props: { role, loginTitle: loginTitles[role], error, passwordChanged: query.password === 'changed', challenge, handoff, mobile: query.mobil === '1', apkUrl: androidApkUrl(), showCrossDock: crossDockEnabled(), language: languageFromCookie(req.headers.cookie) } };
+  return { props: { role, loginTitle: loginTitles[role], error, passwordChanged: query.password === 'changed', challenge,
+    handoff, mobile: query.mobil === '1', apkUrl: androidApkUrl(), dockAvailable: crossDockEnabled(),
+    scanAvailable: scanEnabled(), language: languageFromCookie(req.headers.cookie) } };
 };
 
-export default function Landing({ role, loginTitle, error, passwordChanged, challenge, handoff, mobile, apkUrl, showCrossDock }: Props) {
+export default function Landing({ role, loginTitle, error, passwordChanged, challenge, handoff, mobile, apkUrl, dockAvailable, scanAvailable }: Props) {
   const t = useTranslate();
   const mobileParam = mobile ? '&mobil=1' : '';
   return <>
@@ -78,6 +81,7 @@ export default function Landing({ role, loginTitle, error, passwordChanged, chal
             <a className="button hero-secondary" href="#urun-akisi">{t("Ürün akışını izle")}</a>
           </div>
           <div className="hero-links">
+            <a href="#moduller">{t('Ürün yol haritası')} <span aria-hidden="true">↓</span></a>
             <a href={mobile ? '/trace?mobil=1' : '/trace'}>MU TRACE <span aria-hidden="true">↗</span></a>
             {apkUrl && !mobile && <a href={apkUrl} download="muterminal.apk">{t("Android APK indir")} <span aria-hidden="true">↓</span></a>}
           </div>
@@ -90,31 +94,7 @@ export default function Landing({ role, loginTitle, error, passwordChanged, chal
         </div>
       </div>
     </section>
-    <section className="wrap modules-overview" aria-labelledby="modules-title">
-      <h2 id="modules-title">{t("MuTerminal modülleri")}</h2>
-      <div className="module-grid">
-        <article className="module-card">
-          <span className="module-mark module-mark-scan" aria-hidden="true" />
-          <h3>MuTerminal CORE</h3>
-          <p>{t("Mağazanın günlük ürün ve stok operasyonlarını takip etmek için kullanılan çalışma alanı.")}</p>
-          <ul>
-            <li>{t("RKS, delist ve geçici blokaj takibi")}</li>
-            <li>{t("Lot ve son kullanma tarihi kontrolü")}</li>
-            <li>{t(showCrossDock ? "Depo iadesi, sayım farkı ve Cross-Dock değerlendirmesi" : "Depo iadesi ve sayım farkı")}</li>
-          </ul>
-        </article>
-        <article className="module-card module-card-decision">
-          <span className="module-mark module-mark-decision" aria-hidden="true" />
-          <h3>MuDecision</h3>
-          <p>{t("MuDecision Engine, her ürün için ayrı bir dijital karar dosyası oluşturur.")}</p>
-          <ul>
-            <li>{t("Ürün ve lot bilgileriyle birlikte kararın değerlendirilmesi")}</li>
-            <li>{t("Yetkili personelin karar ve gerekçesinin kaydı")}</li>
-            <li>{t("Karar geçmişinin ürün ve lot bazında incelenmesi")}</li>
-          </ul>
-        </article>
-      </div>
-    </section>
+    <ModuleRoadmap scanAvailable={scanAvailable} dockAvailable={dockAvailable} mobile={mobile} />
     <ProductJourney />
     <section className="wrap login-section" id="admin-giris" aria-labelledby="login-title">
       <div className="login-card">
