@@ -1,16 +1,17 @@
-.shell { min-height: 100vh; color: #17352c; background: #f3f6f5; font: 1rem system-ui, sans-serif; }
+.shell { min-height: 100vh; color: #172a25; background: #eef3ef; font: 1rem/1.5 "Segoe UI", system-ui, sans-serif; }
 :global(body):has(.shell) { margin: 0; }
 .wrap { width: min(71rem, calc(100% - 2rem)); margin-inline: auto; }
-.header { background: #124c39; color: white; }
+.header { background: radial-gradient(ellipse at 100% 0%, #3a714f, transparent 68%), #15382d; color: white; }
 .header .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: 1rem; padding-block: 1.3rem; }
 .header h1, .header p { margin: 0; }
+.header h1 { letter-spacing: -.045em; line-height: 1.1; }
 .header p { margin-top: .3rem; color: #dceee3; }
 .header nav { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
 .header nav form { margin: 0; }
 .header nav a, .header nav button { color: white; font: inherit; }
 .header nav button { padding: .4rem .65rem; border: 1px solid #75ad98; border-radius: .4rem; background: transparent; cursor: pointer; }
 .main { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); align-items: start; gap: 1rem; padding-block: 1.5rem 2rem; }
-.card { min-width: 0; padding: clamp(1rem, 3vw, 1.7rem); border: 1px solid #d9e6de; border-radius: .85rem; background: white; }
+.card { min-width: 0; padding: clamp(1rem, 3vw, 1.7rem); border: 1px solid #dce7e0; border-radius: 17px; background: white; }
 .card h2, .card h3 { margin-top: 0; }
 .card h2 { margin-bottom: .4rem; font-size: clamp(1.35rem, 4vw, 1.8rem); }
 .cardHeading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: .65rem; }
@@ -18,7 +19,7 @@
 .steps { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; padding: 0; margin: .85rem 0 1.25rem; }
 .steps li { border: 1px solid #c6d9cd; border-radius: .4rem; padding: .4rem .55rem; color: #486558; font-size: .875rem; font-weight: 650; }
 .steps li[data-complete='true'] { color: #154232; background: #e4f2e8; }
-.steps li[aria-current] { border-color: #124c39; color: white; background: #124c39; }
+.steps li[aria-current] { border-color: #a4c982; color: #172d23; background: #c5f48c; }
 .flow { animation: enter .28s ease-out both; }
 .flow form { margin: 0; }
 .card label { display: block; margin: .6rem 0 .35rem; font-weight: 650; }

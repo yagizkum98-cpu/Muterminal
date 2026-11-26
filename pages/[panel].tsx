@@ -39,41 +39,53 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
     <Head><title>{`${title} | MuTerminal Core`}</title><link rel="stylesheet" href="/panel.css" /></Head>
     <Script src="/app.js" strategy="afterInteractive" />
   <header className="admin-header">
-    <div>
-      <h1><img src="/muterminal-core-logo.png" width="2172" height="724" alt="MuTerminal Core" /></h1>
-      <p id="panel-role"></p>
-      <p id="panel-account"></p>
+    <div className="header-inner">
+      <h1 className="panel-brand"><img src="/muterminal-app-icon.png" width="44" height="44" alt="" /><span>MuTerminal <b>CORE</b></span></h1>
+      <div className="panel-identity">
+        <p id="panel-role">{t(title)}</p>
+        <p id="panel-account"></p>
+      </div>
+      <div className="actions header-actions">
+        <details className="header-settings">
+          <summary>{t('Hesap ayarları')}</summary>
+          <div className="settings-popover">
+            <ChangePassword mobile={mobile} signIn={`/?panel=${role}&password=changed${mobile ? '&mobil=1' : ''}#admin-giris`} />
+            <NotificationSettings panel={role} mobile={mobile} />
+          </div>
+        </details>
+        <LanguagePicker /><form method="post" action={mobile ? '/admin/logout?mobil=1' : '/admin/logout'}>
+        <button type="submit" className="secondary">{t("Oturumu kapat")}</button>
+      </form></div>
     </div>
-    <div className="actions"><LanguagePicker /><form method="post" action={mobile ? '/admin/logout?mobil=1' : '/admin/logout'}>
-      <button type="submit" className="secondary">{t("Oturumu kapat")}</button>
-    </form></div>
   </header>
   <main id="core-panel" data-panel={role} data-mobile={mobile ? '1' : '0'}>
-    <ChangePassword mobile={mobile} signIn={`/?panel=${role}&password=changed${mobile ? '&mobil=1' : ''}#admin-giris`} />
-    <NotificationSettings panel={role} mobile={mobile} />
-    {mobile && <p><a className="scan-link" href="/mobil">{t("Mobil ana ekran")}</a></p>}
-    <p><a className="scan-link" href={mobile ? '/trace?mobil=1' : '/trace'}>{t("MU TRACE · Ürün izlenebilirliği")}</a></p>
-    {canSwitchPanels && <nav className="modules" aria-label={t("Panel girişleri")}>
-      {role !== 'admin' && <a href={mobile ? '/admin?mobil=1' : '/admin'}>Admin</a>}
-      {role !== 'manager' && <a href={mobile ? '/manager?mobil=1' : '/manager'}>{t("Yönetici")}</a>}
-      {role !== 'staff' && <a href={mobile ? '/staff?mobil=1' : '/staff'}>{t("Personel")}</a>}
-      <a href={mobile ? '/trace?panel=depo&mobil=1' : '/trace?panel=depo'}>{t("Depo paneli")}</a>
-    </nav>}
-    {showScan && (role === 'staff' || canSwitchPanels) && <p>
-      <a className="scan-link" href={mobile ? '/staff/scan?mobil=1' : '/staff/scan'}>{t("MuTerminal Scan · Barkodla kontrol")}</a>
-    </p>}
-    {role === 'staff' && !showScan && <aside className="scan-notice" id="muscan-durum" aria-labelledby="muscan-durum-title">
-        <h2 id="muscan-durum-title">{t("MuScan geliştirilmekte")}</h2>
-        <p>{t("Gerekli prosedürler tamamlandıktan sonra kullanıma açılacak.")}</p>
-      </aside>}
-    <nav id="modules" className="modules" aria-label={t("MuTerminal modülleri")}>
-      <button type="button" className="decision-module-tab" data-module="mudecision" aria-pressed="true">
-        <img src="/mudecision-logo.png" width="2172" height="724" alt="MuDecision" />
-      </button>
-    </nav>
+    <aside className="workspace-sidebar" aria-labelledby="workspace-navigation-title">
+      <h2 id="workspace-navigation-title">{t('Modüller')}</h2>
+      <nav id="modules" className="modules" aria-labelledby="workspace-navigation-title">
+        <button type="button" data-module="mudecision" aria-pressed="true">MuDecision</button>
+      </nav>
+      <details className="workspace-links">
+        <summary>{t('Bağlantılar')}</summary>
+        <nav aria-label={t('Bağlantılar')}>
+          {mobile && <a href="/mobil">{t('Mobil ana ekran')}</a>}
+          <a href={mobile ? '/trace?mobil=1' : '/trace'}>{t('MU TRACE · Ürün izlenebilirliği')}</a>
+          {canSwitchPanels && <>
+            {role !== 'admin' && <a href={mobile ? '/admin?mobil=1' : '/admin'}>Admin</a>}
+            {role !== 'manager' && <a href={mobile ? '/manager?mobil=1' : '/manager'}>{t('Yönetici')}</a>}
+            {role !== 'staff' && <a href={mobile ? '/staff?mobil=1' : '/staff'}>{t('Personel')}</a>}
+            <a href={mobile ? '/trace?panel=depo&mobil=1' : '/trace?panel=depo'}>{t('Depo paneli')}</a>
+          </>}
+          {showScan && (role === 'staff' || canSwitchPanels) &&
+            <a href={mobile ? '/staff/scan?mobil=1' : '/staff/scan'}>{t('MuTerminal Scan · Barkodla kontrol')}</a>}
+        </nav>
+      </details>
+    </aside>
+    <div className="workspace-body">
     <section className="department-picker" aria-labelledby="departments-title">
-      <h2 id="departments-title">{t("Reyonlar")}</h2>
-      <div id="store-filter-field" hidden><label htmlFor="store-filter">{t("Mağaza")}</label><select id="store-filter"></select></div>
+      <div className="department-heading">
+        <h2 id="departments-title">{t("Reyonlar")}</h2>
+        <div id="store-filter-field" hidden><label htmlFor="store-filter">{t("Mağaza")}</label><select id="store-filter"></select></div>
+      </div>
       <nav id="departments" className="modules" aria-labelledby="departments-title">
         <button type="button" data-department-group="" aria-pressed="true">{t("Tüm reyonlar")}</button>
       </nav>
@@ -82,6 +94,8 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
         <nav id="subdepartments" className="modules" aria-labelledby="subdepartments-title"></nav>
         <p id="subdepartments-empty" hidden>{t("Alt reyonlar daha sonra tanımlanacak.")}</p>
       </div>
+      <details className="department-tools">
+      <summary>{t('Takvim ve reyon raporu')}</summary>
       <div className="department-calendar" role="group" aria-labelledby="department-calendar-title">
         <h3 id="department-calendar-title">{t('Reyon takvimi')}</h3>
         <div className="calendar-layout">
@@ -110,12 +124,18 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
         <p id="department-report-scope"></p>
         <ReportDownload core="department" />
       </div>
+      </details>
     </section>
     <p id="sync-status" role="status">{t("Kayıtlar yükleniyor…")}</p>
     <ScanLite role={role} mobile={mobile} />
     <section id="decision-files-panel" aria-labelledby="decision-files-title">
-      <h2 id="decision-files-title"><img src="/mudecision-logo.png" width="2172" height="724" alt="MuDecision" /></h2>
-      <p>{t("MuTerminal Core’a girilen operasyonları ürün ve lot bazında inceleyin, ilgili kayda gidin ve kararınızı gerekçesiyle kaydedin.")}</p>
+      <div className="panel-hero">
+        <div>
+          <h2 id="decision-files-title">MuDecision</h2>
+          <p>{t('Ürün ve lot bazında kararlar')}</p>
+        </div>
+        <button type="button" className="hero-action" data-module-shortcut="scan-lite">MuScan Lite</button>
+      </div>
       <div className="toolbar">
         <input id="decision-search" type="search" placeholder={t("Ürün, barkod veya lot ara")} aria-label={t("Karar dosyalarında ara")} />
       </div>
@@ -124,23 +144,35 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
     </section>
     <div className="cards" id="stats" hidden></div>
     <section id="dashboard-panel" hidden>
-      <h2>MuDashboard Lite</h2>
+      <div className="panel-hero">
+        <div><h2>MuDashboard Lite</h2><p>{t('Operasyon panosu')}</p></div>
+        <div className="actions">
+          <button type="button" className="hero-action hero-action-secondary" data-module-shortcut="approval-lite">{t('Bekleyen onaylar')}</button>
+          <button type="button" className="hero-action" data-module-shortcut="scan-lite">MuScan Lite</button>
+        </div>
+      </div>
       <div id="pilot-metrics" className="cards"></div>
-      <h3 id="pilot-risks-title">{t('SKT riskleri')}</h3>
-      <ul id="pilot-risks" aria-labelledby="pilot-risks-title"></ul>
-      <h3 id="pilot-history-title">{t('Ürün işlem geçmişi')}</h3>
-      <label htmlFor="pilot-history-search">{t('Ürün, barkod veya lot ara')}</label>
-      <input id="pilot-history-search" type="search" autoComplete="off" />
-      <p id="pilot-history-limit" hidden>{t('En son 50 eşleşme gösteriliyor.')}</p>
-      <div className="scroll"><table aria-labelledby="pilot-history-title">
-        <thead><tr><th>{t('Tarih')}</th><th>{t('Ürün / Lot')}</th><th>{t('Operasyon')}</th><th>{t('Sonuç')}</th><th>{t('İşlem')}</th></tr></thead>
-        <tbody id="pilot-history"></tbody>
-      </table></div>
-      <h3 id="report-title">{t("Operasyon raporu")}</h3>
-      <div className="scroll"><table aria-labelledby="report-title"><thead><tr>
-        <th id="report-group">{t("Mağaza")}</th><th>{t("Kontrol kayıtları")}</th><th>{t("Karar işlemleri")}</th><th>{t("Bekleyen talepler")}</th>
-      </tr></thead><tbody id="report-rows"></tbody></table></div>
-      <ReportDownload core="summary" />
+      <div className="dashboard-block">
+        <h3 id="pilot-risks-title">{t('SKT riskleri')}</h3>
+        <ul id="pilot-risks" aria-labelledby="pilot-risks-title"></ul>
+      </div>
+      <div className="dashboard-block">
+        <h3 id="pilot-history-title">{t('Ürün işlem geçmişi')}</h3>
+        <label htmlFor="pilot-history-search">{t('Ürün, barkod veya lot ara')}</label>
+        <input id="pilot-history-search" type="search" autoComplete="off" />
+        <p id="pilot-history-limit" hidden>{t('En son 50 eşleşme gösteriliyor.')}</p>
+        <div className="scroll"><table aria-labelledby="pilot-history-title">
+          <thead><tr><th>{t('Tarih')}</th><th>{t('Ürün / Lot')}</th><th>{t('Operasyon')}</th><th>{t('Sonuç')}</th><th>{t('İşlem')}</th></tr></thead>
+          <tbody id="pilot-history"></tbody>
+        </table></div>
+      </div>
+      <div className="dashboard-block">
+        <h3 id="report-title">{t("Operasyon raporu")}</h3>
+        <div className="scroll"><table aria-labelledby="report-title"><thead><tr>
+          <th id="report-group">{t("Mağaza")}</th><th>{t("Kontrol kayıtları")}</th><th>{t("Karar işlemleri")}</th><th>{t("Bekleyen talepler")}</th>
+        </tr></thead><tbody id="report-rows"></tbody></table></div>
+        <ReportDownload core="summary" />
+      </div>
     </section>
     <section id="approval-panel" aria-labelledby="approval-title" hidden>
       <h2 id="approval-title">MuApproval Lite</h2>
@@ -318,9 +350,14 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
         </table>
       </div>
     </section>
+    {role === 'staff' && !showScan && <aside className="scan-notice" id="muscan-durum" aria-labelledby="muscan-durum-title">
+      <h2 id="muscan-durum-title">{t('MuScan geliştirilmekte')}</h2>
+      <p>{t('Gerekli prosedürler tamamlandıktan sonra kullanıma açılacak.')}</p>
+    </aside>}
+    </div>
   </main>
   <footer>
-    <img src="/muterminal-logo.png" width="2172" height="724" alt="MuTerminal" />
+    <strong>MuTerminal CORE</strong>
     <span>{t("Pilot uygulama")}</span>
   </footer>
 

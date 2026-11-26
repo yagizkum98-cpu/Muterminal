@@ -56,75 +56,101 @@ export default function Landing({ role, loginTitle, error, passwordChanged, chal
     </Head>
   <header className="site-header wrap">
     <a className="brand" href="/" aria-label={t("MuTerminal ana sayfa")}>
-      <img src="/muterminal-logo.png" width="2172" height="724" alt="MuTerminal" />
+      <img src="/muterminal-app-icon.png" width="44" height="44" alt="" />
+      <span>MuTerminal</span>
     </a>
     <nav className="login-links" aria-label={t("Panel girişleri")}>
-      <LanguagePicker />
-      <a className="button" href="/?panel=admin#admin-giris">{t("Admin girişi")}</a>
-      <a className="button" href="/?panel=manager#admin-giris">{t("Yönetici girişi")}</a>
-      <a className="button" href="/?panel=staff#admin-giris">{t("Personel girişi")}</a>
+      <a className="header-link" href={`/?panel=admin${mobileParam}#admin-giris`}>{t("Admin girişi")}</a>
+      <a className="header-link" href={`/?panel=manager${mobileParam}#admin-giris`}>{t("Yönetici girişi")}</a>
+      <a className="button" href={`/?panel=staff${mobileParam}#admin-giris`}>{t("Personel girişi")}</a>
     </nav>
+    <div className="header-language"><LanguagePicker /></div>
   </header>
   <main>
-    <div className="hero-surface">
+    <section className="hero-surface" aria-labelledby="hero-title">
       <div className="wrap hero">
-        <p className="eyebrow">{t("Mağaza operasyonları")}</p>
-        <h1>{t("Operasyon kayıtları ve ürün kararları tek yerde")}</h1>
-        <p>{t("MuTerminal, mağaza ekiplerinin ürün ve lot bazında operasyonları takip etmesini, manuel kararları gerekçeleriyle kaydetmesini ve karar geçmişini incelemesini sağlar.")}</p>
-        <a className="button hero-journey" href="#urun-akisi">{t("Ürün akışını izle")}</a>
-        {' '}<a className="button hero-journey" href="/trace">MU TRACE</a>
-        {apkUrl && !mobile && <>{' '}<a className="button hero-journey" href={apkUrl} download="muterminal.apk">{t("Android APK indir")}</a></>}
+        <div className="hero-copy">
+          <p className="eyebrow">{t("Mağaza operasyonları")}</p>
+          <h1 id="hero-title">{t("Operasyon kayıtları ve ürün kararları tek yerde")}</h1>
+          <p className="hero-lead">{t("MuTerminal, mağaza ekiplerinin ürün ve lot bazında operasyonları takip etmesini, manuel kararları gerekçeleriyle kaydetmesini ve karar geçmişini incelemesini sağlar.")}</p>
+          <div className="hero-actions">
+            <a className="button hero-primary" href="#admin-giris">{t("Panel girişi")}<span aria-hidden="true">↓</span></a>
+            <a className="button hero-secondary" href="#urun-akisi">{t("Ürün akışını izle")}</a>
+          </div>
+          <div className="hero-links">
+            <a href={mobile ? '/trace?mobil=1' : '/trace'}>MU TRACE <span aria-hidden="true">↗</span></a>
+            {apkUrl && !mobile && <a href={apkUrl} download="muterminal.apk">{t("Android APK indir")} <span aria-hidden="true">↓</span></a>}
+          </div>
+        </div>
+        <div className="hero-visual">
+          <img className="hero-image" src="/landing-stockroom.webp" alt="" width="960" height="1200" fetchPriority="high" />
+          <ol className="hero-workflow" aria-label={t("Dijital işlem akışı")}>
+            <li>{t("Kontrol")}</li><li>{t("Karar")}</li><li>{t("Kayıt")}</li>
+          </ol>
+        </div>
       </div>
-    </div>
-    <div className="wrap modules-overview">
-      <section aria-labelledby="core-title">
-        <h2 id="core-title"><img className="module-brand" src="/muterminal-core-logo.png" width="2172" height="724" alt="MuTerminal Core" /></h2>
-        <p>{t("Mağazanın günlük ürün ve stok operasyonlarını takip etmek için kullanılan çalışma alanı.")}</p>
-        <ul>
-          <li>{t("RKS, delist ve geçici blokaj takibi")}</li>
-          <li>{t("Lot ve son kullanma tarihi kontrolü")}</li>
-          <li>{t(showCrossDock ? "Depo iadesi, sayım farkı ve Cross-Dock değerlendirmesi" : "Depo iadesi ve sayım farkı")}</li>
-        </ul>
-      </section>
-      <section aria-labelledby="decision-title">
-        <h2 id="decision-title"><img className="module-brand" src="/mudecision-logo.png" width="2172" height="724" alt="MuDecision" /></h2>
-        <p>{t("MuDecision Engine, her ürün için ayrı bir dijital karar dosyası oluşturur.")}</p>
-        <ul>
-          <li>{t("Ürün ve lot bilgileriyle birlikte kararın değerlendirilmesi")}</li>
-          <li>{t("Yetkili personelin karar ve gerekçesinin kaydı")}</li>
-          <li>{t("Karar geçmişinin ürün ve lot bazında incelenmesi")}</li>
-        </ul>
-      </section>
-    </div>
+    </section>
+    <section className="wrap modules-overview" aria-labelledby="modules-title">
+      <h2 id="modules-title">{t("MuTerminal modülleri")}</h2>
+      <div className="module-grid">
+        <article className="module-card">
+          <span className="module-mark module-mark-scan" aria-hidden="true" />
+          <h3>MuTerminal CORE</h3>
+          <p>{t("Mağazanın günlük ürün ve stok operasyonlarını takip etmek için kullanılan çalışma alanı.")}</p>
+          <ul>
+            <li>{t("RKS, delist ve geçici blokaj takibi")}</li>
+            <li>{t("Lot ve son kullanma tarihi kontrolü")}</li>
+            <li>{t(showCrossDock ? "Depo iadesi, sayım farkı ve Cross-Dock değerlendirmesi" : "Depo iadesi ve sayım farkı")}</li>
+          </ul>
+        </article>
+        <article className="module-card module-card-decision">
+          <span className="module-mark module-mark-decision" aria-hidden="true" />
+          <h3>MuDecision</h3>
+          <p>{t("MuDecision Engine, her ürün için ayrı bir dijital karar dosyası oluşturur.")}</p>
+          <ul>
+            <li>{t("Ürün ve lot bilgileriyle birlikte kararın değerlendirilmesi")}</li>
+            <li>{t("Yetkili personelin karar ve gerekçesinin kaydı")}</li>
+            <li>{t("Karar geçmişinin ürün ve lot bazında incelenmesi")}</li>
+          </ul>
+        </article>
+      </div>
+    </section>
     <ProductJourney />
     <section className="wrap login-section" id="admin-giris" aria-labelledby="login-title">
       <div className="login-card">
-        <h2 id="login-title">{t(loginTitle)}</h2>
-        {handoff && <p role="status">{t("MuScan talebini incelemek için yönetici hesabınızla giriş yapın.") + " "}<a href="/staff/scan#islem-gecmisim">{t("Personel işlem geçmişine dön")}</a></p>}
-        <nav className="login-panel-options" aria-label={t("Giriş paneli seçimi")}>
-          <a aria-current={role === 'admin' ? 'true' : undefined} href={`/?panel=admin${mobileParam}#admin-giris`}>Admin</a>
-          <a aria-current={role === 'manager' ? 'true' : undefined} href={`/?panel=manager${mobileParam}#admin-giris`}>{t("Yönetici")}</a>
-          <a aria-current={role === 'staff' ? 'true' : undefined} href={`/?panel=staff${mobileParam}#admin-giris`}>{t("Personel")}</a>
-        </nav>
-        {error && <p className="login-error" role="alert">{t(error)}</p>}
-        {passwordChanged && <p role="status">{t("Şifreniz değiştirildi. Yeni şifrenizle giriş yapın.")}</p>}
-        {challenge ? <form method="post" action="/admin/login">
-          <input type="hidden" name="role" value={role} />
-          {mobile && <input type="hidden" name="mobil" value="1" />}
-          {handoff && <input type="hidden" name="talep" value={handoff} />}
-          <label htmlFor="email">{t("Kullanıcı adı veya e-posta")}</label>
-          <input id="email" name="email" type="text" maxLength={100} autoComplete="username" autoCapitalize="none" spellCheck="false" required />
-          <label htmlFor="password">{t("Şifre")}</label>
-          <input id="password" name="password" type="password" autoComplete="current-password" maxLength={128} required />
-          <LoginChallenge key={challenge.id} initial={challenge} imageClassName="login-challenge"
-            refreshHref={`/admin/login?panel=${role}${mobileParam}${handoff ? `&talep=${handoff}` : ''}`} />
-          <button className="button" type="submit">{t("Giriş yap")}</button>
-        </form> : error !== errors.limit && <p role="status">{t("Veritabanı bağlantısı kurulamadı. Giriş için bağlantıyı kontrol edin.")}</p>}
+        <div className="login-side">
+          <p>{t("Panel girişi")}</p>
+          <nav className="login-panel-options" aria-label={t("Giriş paneli seçimi")}>
+            <a aria-current={role === 'admin' ? 'true' : undefined} href={`/?panel=admin${mobileParam}#admin-giris`}>Admin</a>
+            <a aria-current={role === 'manager' ? 'true' : undefined} href={`/?panel=manager${mobileParam}#admin-giris`}>{t("Yönetici")}</a>
+            <a aria-current={role === 'staff' ? 'true' : undefined} href={`/?panel=staff${mobileParam}#admin-giris`}>{t("Personel")}</a>
+          </nav>
+        </div>
+        <div className="login-content">
+          <h2 id="login-title">{t(loginTitle)}</h2>
+          {handoff && <p role="status">{t("MuScan talebini incelemek için yönetici hesabınızla giriş yapın.") + " "}
+            <a href={mobile ? '/staff/scan?mobil=1#islem-gecmisim' : '/staff/scan#islem-gecmisim'}>{t("Personel işlem geçmişine dön")}</a>
+          </p>}
+          {error && <p className="login-error" role="alert">{t(error)}</p>}
+          {passwordChanged && <p role="status">{t("Şifreniz değiştirildi. Yeni şifrenizle giriş yapın.")}</p>}
+          {challenge ? <form method="post" action="/admin/login">
+            <input type="hidden" name="role" value={role} />
+            {mobile && <input type="hidden" name="mobil" value="1" />}
+            {handoff && <input type="hidden" name="talep" value={handoff} />}
+            <label htmlFor="email">{t("Kullanıcı adı veya e-posta")}</label>
+            <input id="email" name="email" type="text" maxLength={100} autoComplete="username" autoCapitalize="none" spellCheck="false" required />
+            <label htmlFor="password">{t("Şifre")}</label>
+            <input id="password" name="password" type="password" autoComplete="current-password" maxLength={128} required />
+            <LoginChallenge key={challenge.id} initial={challenge} imageClassName="login-challenge"
+              refreshHref={`/admin/login?panel=${role}${mobileParam}${handoff ? `&talep=${handoff}` : ''}`} />
+            <button className="button" type="submit">{t("Giriş yap")}</button>
+          </form> : error !== errors.limit && <p role="status">{t("Veritabanı bağlantısı kurulamadı. Giriş için bağlantıyı kontrol edin.")}</p>}
+        </div>
       </div>
     </section>
   </main>
   <footer className="wrap site-footer">
-    <img src="/muterminal-logo.png" width="2172" height="724" alt="MuTerminal" />
+    <strong>MuTerminal</strong>
     <span>{t("Pilot uygulama")}</span>
   </footer>
 

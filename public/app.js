@@ -498,10 +498,13 @@ function renderDashboard() {
   $('pilot-metrics').innerHTML = metrics.map(([label, value]) => `<div class="card"><small>${escapeHtml(t(label))}</small><b>${escapeHtml(value)}</b></div>`).join('');
   $('pilot-risks').innerHTML = [...risks.values()].map(record => {
     const date = record.details?.expiryDate;
-    return `<li><strong>${escapeHtml(record.name)}</strong> · ${escapeHtml(storeName(record.storeId))} · ${escapeHtml(record.lot)}
-      · ${escapeHtml(t(record.expiryRisk))}${date && Number.isFinite(Date.parse(date)) ? ` · ${escapeHtml(detailDateFormat.format(new Date(date)))}` : ''}
+    const expiryDate = date && Number.isFinite(Date.parse(date)) ? detailDateFormat.format(new Date(date)) : '';
+    const riskTone = record.expiryRisk === 'SKT geçmiş' ? 'danger' : 'warn';
+    return `<li class="pilot-risk-item">
+      <div><strong>${escapeHtml(record.name)}</strong><small>${escapeHtml(storeName(record.storeId))} · ${escapeHtml(t('Lot'))} ${escapeHtml(record.lot)}</small></div>
+      <div><span class="tag ${riskTone}">${escapeHtml(t(record.expiryRisk))}</span>${expiryDate ? `<small>${escapeHtml(expiryDate)}</small>` : ''}</div>
       <button type="button" class="secondary" data-action="open-operation" data-id="${escapeHtml(record.id)}">${escapeHtml(t('Operasyon kaydına git'))}</button></li>`;
-  }).join('') || `<li>${escapeHtml(t('SKT riski bulunamadı.'))}</li>`;
+  }).join('') || `<li class="pilot-risk-empty">${escapeHtml(t('SKT riski bulunamadı.'))}</li>`;
   renderPilotHistory(activity);
 }
 
@@ -722,6 +725,14 @@ function selectModule(type, product) {
   editingId = undefined;
   for (const button of $('modules').querySelectorAll('button')) {
     button.setAttribute('aria-pressed', String(button.dataset.module === type));
+  }
+  const modules = $('modules');
+  const activeButton = modules.querySelector('[aria-pressed="true"]');
+  if (activeButton && modules.scrollWidth > modules.clientWidth) {
+    const viewport = modules.getBoundingClientRect();
+    const bounds = activeButton.getBoundingClientRect();
+    if (bounds.left < viewport.left) modules.scrollLeft += bounds.left - viewport.left;
+    if (bounds.right > viewport.right) modules.scrollLeft += bounds.right - viewport.right;
   }
   document.dispatchEvent(new CustomEvent('muterminal:module', { detail: type }));
   $('decision-files-panel').hidden = !isDecision;
@@ -1120,6 +1131,12 @@ $('modules').addEventListener('click', event => {
   const button = event.target.closest('button[data-module]');
   if (button && (button.dataset.module !== activeModule || lotFilter || barcodeHistory)) selectModule(button.dataset.module);
 });
+$('core-panel').addEventListener('click', event => {
+  const shortcut = event.target.closest('button[data-module-shortcut]');
+  if (!shortcut) return;
+  selectModule(shortcut.dataset.moduleShortcut);
+  $('modules').querySelector('[aria-pressed="true"]')?.focus({ preventScroll: true });
+});
 function selectDepartmentScope(group, department = '') {
   if (activeDepartmentGroup === group && activeDepartment === department) return;
   const groupChanged = activeDepartmentGroup !== group;
@@ -1392,7 +1409,7 @@ async function start() {
     if (panel.role !== 'staff') $('modules').insertAdjacentHTML('afterbegin', '<button type="button" data-module="dashboard">MuDashboard Lite</button>');
     $('modules').insertAdjacentHTML('beforeend', '<button type="button" data-module="scan-lite">MuScan Lite</button><button type="button" data-module="approval-lite">MuApproval Lite</button>');
     $('modules').insertAdjacentHTML('beforeend', options.filter(([, operation]) => !operation.disabled).map(([id, operation]) => (
-      `<button type="button" data-module="${escapeHtml(id)}">${escapeHtml(t(operation.title))}</button>`
+      `<button type="button" class="operation-tab" data-module="${escapeHtml(id)}">${escapeHtml(t(operation.title))}</button>`
     )).join('') + `<button type="button" data-module="history">${panel.role === 'staff' ? t("Kendi İşlem Geçmişim") : t("Karar Geçmişi")}</button>`);
     if (panel.role === 'admin') {
       $('user-job-title').innerHTML = staffJobTitleOptions();

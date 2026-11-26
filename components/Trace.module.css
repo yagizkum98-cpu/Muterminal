@@ -3,13 +3,13 @@
 .shell {
   --ink: #172a29;
   --muted: #516662;
-  --line: #cfded9;
-  --green: #075d48;
-  --pale: #edf6f1;
+  --line: #dce7e0;
+  --green: #126146;
+  --pale: #edf6ef;
   min-height: 100vh;
-  background: #f3f6f4;
+  background: #eef3ef;
   color: var(--ink);
-  font: 16px/1.5 system-ui, sans-serif;
+  font: 16px/1.5 "Segoe UI", system-ui, sans-serif;
 }
 
 .shell * { box-sizing: border-box; }
@@ -24,11 +24,14 @@
 .brand { display: block; width: clamp(150px, 46vw, 255px); max-width: 100%; }
 .brand img { display: block; width: 100%; height: auto; }
 .back { font-size: .875rem; }
-.hero { padding: 38px 0 20px; }
+.hero {
+  margin: 20px 0 16px; padding: clamp(20px, 4vw, 38px); color: #fff; border-radius: 18px;
+  background: radial-gradient(ellipse at 100% 0%, #3a714f, transparent 70%), #15382d;
+}
 .hero h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.1; letter-spacing: -.045em; }
-.hero p { margin: 10px 0 0; color: var(--muted); }
+.hero p { margin: 10px 0 0; color: #cce4d2; overflow-wrap: anywhere; }
 .shell main { padding-bottom: 54px; }
-.card { border: 1px solid var(--line); background: white; border-radius: 14px; padding: clamp(16px, 3vw, 27px); min-width: 0; }
+.card { border: 1px solid var(--line); background: white; border-radius: 17px; padding: clamp(16px, 3vw, 27px); min-width: 0; }
 .card h2, .card h3 { line-height: 1.25; }
 .card h2 { margin: 0 0 15px; font-size: 1.22rem; }
 .card h3 { margin: 0 0 8px; font-size: 1rem; }
@@ -54,8 +57,10 @@
 .actions, .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .row { justify-content: space-between; margin-bottom: 8px; }
 .row h2, .row h3 { margin: 0; }
-.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
-.tabs button[aria-pressed="false"] { color: var(--ink); background: transparent; border-color: var(--line); }
+.tabs { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 14px; padding: 6px; background: #112c26; border-radius: 12px; }
+.tabs button[aria-pressed="false"] { color: #d1e2d7; background: transparent; border-color: transparent; }
+.tabs button[aria-pressed="true"] { color: #172d23; background: #c5f48c; border-color: #c5f48c; }
+.shell .tabs button:focus-visible { outline-color: #c5f48c; }
 .status { color: var(--green); font-size: .9rem; }
 .status:empty { margin: 0; }
 .error, .warning, .empty, .pending { padding: 10px 12px; border-radius: 7px; }

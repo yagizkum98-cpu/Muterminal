@@ -920,5 +920,12 @@
   "CSV aktar": "Import CSV",
   "CSV dosyası 400 KB veya daha küçük olmalıdır.": "The CSV file must be 400 KB or smaller.",
   "{products} ürün, {snapshots} stok kaydı aktarıldı. Atlanan stok kaydı: {skipped}.": "Imported {products} products and {snapshots} stock records. Skipped stock records: {skipped}.",
-  "Bu ürün koduyla birden fazla kayıt var. Barkodla sorgulayın.": "More than one record matches this product code. Search by barcode."
+  "Bu ürün koduyla birden fazla kayıt var. Barkodla sorgulayın.": "More than one record matches this product code. Search by barcode.",
+  "Hesap ayarları": "Account settings",
+  "Modüller": "Modules",
+  "Bağlantılar": "Links",
+  "Takvim ve reyon raporu": "Calendar and department report",
+  "Ürün ve lot bazında kararlar": "Decisions by product and lot",
+  "Panel girişi": "Panel sign-in",
+  "Kayıt": "Record"
 }

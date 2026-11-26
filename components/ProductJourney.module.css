@@ -1,5 +1,5 @@
 .section { padding-block: 0 2rem; scroll-margin-top: 1rem; }
-.card { padding: clamp(1rem, 3.7vw, 2.5rem); border: 1px solid #dce7e0; border-radius: 1rem; background: white; }
+.card { padding: clamp(1rem, 3.7vw, 2.5rem); border: 1px solid #dce7e0; border-radius: 1.3rem; background: white; }
 .header { margin-bottom: 1.4rem; }
 .header h2 { margin: 0 0 .45rem; font-size: clamp(1.65rem, 3.5vw, 2.65rem); letter-spacing: -.035em; line-height: 1.12; }
 .header p { margin: 0; color: #486558; line-height: 1.55; }
