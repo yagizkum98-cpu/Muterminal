@@ -64,6 +64,24 @@ Satış ön onayı MuTerminal’de kaydedilir. RKS blokajının kaldırılması,
 | **MuEvidence** | Yüksek | Yeni kontrol kaydına veya karar talebine hasarlı ambalaj, ürün etiketi ya da SKT fotoğrafı eklenebilir. Tarayıcı fotoğrafı en fazla 512 KB JPEG olarak hazırlar. Fotoğrafı yetkili yönetici ve admin ile fotoğrafı ekleyen personel açabilir. |
 | **MuDashboard Lite** | Yüksek | Yönetici ve admin seçili mağaza ve reyon kapsamında kontrol sayısını, bekleyen onayları, ortalama inceleme süresini, SKT risklerini ve aranabilir ürün işlem geçmişini görür. Süre, gönderim ve inceleme zamanı bulunan talepler üzerinden hesaplanır. |
 
+### El terminaliyle pilot çalışma akışı
+
+**MuScan Lite** barkod veya ürün koduyla mağazaya ait kataloğu ve operasyon kayıtlarını açar. **MuProduct** kartı barkod, ürün kodu, fiyat, fiyat geçerlilik dönemi, koli içi miktar, sipariş durumu ve varsa kaynak satış durumunu gösterir. **MuStock Lite** depo koduna göre kaynaktan alınan miktarı ve güncelleme saatini listeler. Operasyon kayıtlarında lot, SKT ve ilgili RKS veya kontrol durumu incelenebilir.
+
+Personel ürün kartından mevcut bir lot kaydını açabilir veya yeni kontrol başlatabilir. MuApproval Lite işleme ait gerekçeyi ve yönetici incelemesini kaydeder. MuTrace Lite aynı mağaza ve barkoda ait yetki kapsamındaki karar geçmişini açar. Kontrol, karar ve onay işlemleri CORE kayıtlarını günceller. Kaynak stok miktarları PostgreSQL’de ayrı `inventory_snapshots` tablosunda saklanır. Depo koduna ait miktar, tek başına fiziksel sayım farkını göstermez. Fiziksel fark MuDifference üzerinden kaydedilir.
+
+**MuSync Lite** ile Admin yetkili bir kaynaktan aldığı UTF-8 CSV’yi seçili mağaza için aktarabilir. Tüm mağazalar seçiliyken pilot mağaza kullanılır. MuScan Lite’daki şablon aşağıdaki başlık sırasını kullanır.
+
+```csv
+barcode,product_code,product_name,price_try,case_quantity,price_valid_from,price_valid_to,order_status,sale_status,warehouse_code,stock_quantity,source_updated_at
+```
+
+- Barkod ve ürün adı zorunludur. Fiyat TL cinsinden girilir. Tarihler `YYYY-MM-DD` biçimindedir. Kaynak satış durumu `sellable`, `blocked` veya `unknown` olabilir.
+- Depo stoğu aktarılacaksa depo kodu, miktar ve saat dilimi içeren kaynak zamanı birlikte girilir. Aynı ürün birden fazla depoda bulunuyorsa ürün bilgileri her satırda aynı olmalıdır. Başında sıfır olan depo kodları CSV’de metin olarak korunur.
+- Aktarımda 1–500 satır kabul edilir. Bir satır geçersizse aktarım uygulanmaz. Aynı depo ve barkod için eşit veya eski zamanlı stok kaydı atlanır. Ürün kartı bilgileri son başarılı katalog aktarımından alınır.
+
+Canlı ERP/WMS bağlantısı için yetkili API erişimi ve kurumsal izin gerekir. Pilot katalog elle veya CSV ile doldurulabilir.
+
 ## Aşama 3 · MuTerminal Operations (6–12 ay)
 
 **Cross-Dock · MuDock**, depo ve dağıtım kapsamındaki bu aşamada **MuWarehouse** ve **MuTransfer** ile birlikte geliştirilecektir. Bu sıralama, ilk pilotun mağaza içi ürün kararlarına odaklanmasını sağlar ve depo ile sevkiyat entegrasyonlarını sonraki aşamaya bırakır.

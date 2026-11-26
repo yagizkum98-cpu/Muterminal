@@ -16,6 +16,11 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
 #scan-lite-panel .toolbar { align-items: flex-end; }
 #scan-lite-panel .toolbar label { display: grid; gap: 4px; margin: 0; }
+.scan-product-card { background: #f5faf7; border: 1px solid #dce7e0; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.scan-product-card h3 { margin-top: 0; }
+.scan-product-card dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 12px; }
+.scan-product-card dt { color: #486558; font-size: .875rem; }
+.scan-product-card dd { margin: 3px 0 0; font-weight: 650; overflow-wrap: anywhere; }
 .evidence-fields { min-width: 0; border: 1px solid #dce7e0; border-radius: 8px; margin: 14px 0; }
 .evidence-fields input[type="file"] { max-width: 100%; }
 #pilot-risks { padding-inline-start: 1.4rem; }

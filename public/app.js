@@ -54,6 +54,7 @@ let calendarMonth = dayFormat.format(new Date()).slice(0, 7);
 let calendarEntries = new Map();
 let activeModule = decisionModule;
 let lotFilter;
+let barcodeHistory;
 let editingId;
 let entryRevision = 0;
 let products = [];
@@ -426,6 +427,7 @@ function historyRows() {
   return logs.filter(log => (
     inDepartment(log) &&
     (!lotFilter || (log.storeId === lotFilter.storeId && log.code === lotFilter.code && log.lot === lotFilter.lot)) &&
+    (!barcodeHistory || (log.storeId === barcodeHistory.storeId && barcodeHistory.barcodes.includes(log.code))) &&
     (!operation || log.type === operation) &&
     (!date || dayFormat.format(new Date(log.time)) === date) &&
     [log.name, log.code, log.lot, log.staff, log.actor, log.choice, log.reason, log.result, log.destination]
@@ -439,7 +441,8 @@ function renderHistory() {
       <td>${escapeHtml(dateFormat.format(new Date(log.time)))}</td>
       <td>${escapeHtml(log.name)}<br><small>${escapeHtml(storeName(log.storeId))} · ${escapeHtml(log.code)} · ${escapeHtml(log.lot)} · ${escapeHtml(departmentLabel(log.department))}</small></td>
       <td>${escapeHtml(t(operations[log.type]?.title ?? log.type))}</td>
-      <td>${escapeHtml(log.staff)}${log.actor ? `<br><small>${escapeHtml(log.actor)}</small>` : ''}</td>
+      <td>${escapeHtml(log.staff)}${log.actor ? `<br><small>${escapeHtml(log.actor)}</small>` : ''}
+        ${log.requestedBy && log.requestedBy !== log.actor ? `<br><small>${escapeHtml(t('Talep sahibi'))} · ${escapeHtml(log.requestedBy)}</small>` : ''}</td>
       <td>${log.kind === 'assessment' ? '<small>MuDecision</small><br>' : ''}${escapeHtml(t(log.choice))}<br><small>${escapeHtml(log.reason)}</small><br>${evidenceLink(log.id, log.evidence)}</td>
       <td>${escapeHtml(t(log.result))}${log.destination ? `<br><small>${escapeHtml(log.destination)}</small>` : ''}</td>
     </tr>`).join('') || ("<tr><td colspan=\"6\">" + escapeHtml(t("Karar kaydı bulunamadı")) + "</td></tr>");
@@ -713,7 +716,8 @@ function selectModule(type, product) {
   const isReadOnly = isOperation && operations[type].disabled;
   activeModule = type;
   renderCalendar();
-  lotFilter = product;
+  barcodeHistory = product?.barcodes ? product : undefined;
+  lotFilter = barcodeHistory ? undefined : product;
   currentId = null;
   editingId = undefined;
   for (const button of $('modules').querySelectorAll('button')) {
@@ -756,16 +760,20 @@ function selectModule(type, product) {
   }
 
   const module = isHistory ? {
-    title: panel.role === 'staff' ? t("Kendi İşlem Geçmişim") : t("Karar Geçmişi"), feature: 'MuLog',
+    title: barcodeHistory ? t('Ürün karar geçmişi') : panel.role === 'staff' ? t("Kendi İşlem Geçmişim") : t("Karar Geçmişi"),
+    feature: barcodeHistory ? 'MuTrace Lite' : 'MuLog',
     description: 'Tarih, ürün, lot, gerekçe ve sonuca göre kararları inceleyin.',
   } : operations[type];
   $('module-title').textContent = t(module.title);
   $('module-feature').textContent = module.feature;
   $('module-description').textContent = t(isReadOnly ? 'Cross-Dock sonraki geliştirme aşamasında kullanıma açılacak.' : module.description);
   $('clear-lot').hidden = !product;
+  $('clear-lot').textContent = t(barcodeHistory ? 'Ürün filtresini kaldır' : 'Lot filtresini kaldır');
   $('lot-filter').hidden = !product;
   if (product) {
-    $('lot-filter').textContent = `${product.name} · ${storeName(product.storeId)} · Barkod ${product.code} · Lot ${product.lot}`;
+    $('lot-filter').textContent = barcodeHistory
+      ? `${product.name} · ${storeName(product.storeId)} · ${t('Barkod')} ${product.barcode}`
+      : `${product.name} · ${storeName(product.storeId)} · Barkod ${product.code} · Lot ${product.lot}`;
     for (const id of ['history-search', 'history-date', 'history-operation']) $(id).value = '';
   }
   if (isHistory) {
@@ -1029,6 +1037,11 @@ document.addEventListener('muterminal:scan-entry', event => {
   $(lot ? 'department' : 'lot').focus();
 });
 
+document.addEventListener('muterminal:scan-history', event => {
+  selectModule(historyModule, event.detail);
+  $('module-title').scrollIntoView({ behavior: 'smooth' });
+});
+
 $('approval-list').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.target;
@@ -1105,7 +1118,7 @@ $('cancel-edit').addEventListener('click', () => renderEntry());
 $('clear-lot').addEventListener('click', () => selectModule(historyModule));
 $('modules').addEventListener('click', event => {
   const button = event.target.closest('button[data-module]');
-  if (button && (button.dataset.module !== activeModule || lotFilter)) selectModule(button.dataset.module);
+  if (button && (button.dataset.module !== activeModule || lotFilter || barcodeHistory)) selectModule(button.dataset.module);
 });
 function selectDepartmentScope(group, department = '') {
   if (activeDepartmentGroup === group && activeDepartment === department) return;

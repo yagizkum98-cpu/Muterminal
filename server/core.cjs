@@ -1,6 +1,7 @@
 const { createHash, randomBytes, scrypt, timingSafeEqual } = require('node:crypto');
 const { promisify } = require('node:util');
 const { operations, saleApproval, assessments, crossDock } = require('../operations.cjs');
+const { CatalogError, catalogDetails, readCatalogCsv } = require('./pilot-catalog.cjs');
 
 function createCore(database, challenge, { scanEnabled, crossDockEnabled, testerEmail }, trace, traceAccess, traceControls, mobileAccess, notifications) {
   const { Table, newRecordId, createSession, findSession, deleteSession, revokeSessions, ensureSchema, transaction, query } = database;
@@ -326,7 +327,7 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
       }
       await handleApi(request, response, path, session);
     } catch (error) {
-      if (error instanceof RequestError || error instanceof trace.TraceError) {
+      if (error instanceof RequestError || error instanceof CatalogError || error instanceof trace.TraceError) {
         json(response, error.status, { error: error.message });
         return;
       }
@@ -1167,30 +1168,71 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
     return { products: found, today: now.slice(0, 10) };
   }
 
-  async function scanLite(request, response, session) {
+  async function scanLite(request, response, session, importing) {
     const options = new URL(request.url, 'http://localhost').searchParams;
     const storeId = session.role === 'admin' && options.has('store')
       ? await requiredStore(options.get('store')) : session.storeId;
+    if (importing) {
+      requireAdmin(session);
+      if (request.method !== 'POST') throw new RequestError(405, 'Bu yöntem desteklenmiyor.');
+      const { csv } = await readJson(request, 512_000);
+      const batch = readCatalogCsv(csv, trace.traceBarcode);
+      await ensureSchema();
+      const updated = await transaction(async client => {
+        for (const product of batch.products.sort((a, b) => a.barcode.localeCompare(b.barcode))) {
+          await client.query(`
+            INSERT INTO pilot_catalog (id, document) VALUES ($1, $2)
+            ON CONFLICT (id) DO UPDATE SET document = pilot_catalog.document || EXCLUDED.document`,
+          [JSON.stringify([storeId, product.barcode]), JSON.stringify({ ...product, storeId })]);
+        }
+        let count = 0;
+        const ordered = batch.snapshots.sort((a, b) => a.barcode.localeCompare(b.barcode) || a.warehouseCode.localeCompare(b.warehouseCode));
+        for (const snapshot of ordered) {
+          const result = await client.query(`
+            INSERT INTO inventory_snapshots (store_id, barcode, warehouse_code, quantity, source_updated_at, imported_by)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (store_id, barcode, warehouse_code) DO UPDATE SET quantity = EXCLUDED.quantity,
+              source_updated_at = EXCLUDED.source_updated_at, imported_by = EXCLUDED.imported_by, imported_at = now()
+            WHERE inventory_snapshots.source_updated_at < EXCLUDED.source_updated_at`,
+          [storeId, snapshot.barcode, snapshot.warehouseCode, snapshot.quantity, snapshot.sourceUpdatedAt, session.email]);
+          count += result.rowCount;
+        }
+        return count;
+      });
+      return json(response, 200, { products: batch.products.length, snapshots: updated, skipped: batch.snapshots.length - updated });
+    }
     if (request.method === 'POST') {
       requireAdmin(session);
       const body = await readJson(request);
       const barcode = trace.traceBarcode(requiredText(body, 'barcode', 'Barkod', 80));
       const name = requiredText(body, 'name', 'Ürün adı', 150);
       await pilotCatalog.updateOne({ _id: JSON.stringify([storeId, barcode]) },
-        { $set: { barcode, name, storeId } }, { upsert: true });
+        { $set: { ...catalogDetails(body), barcode, name, storeId } }, { upsert: true });
       return json(response, 200, { barcode, name });
     }
     if (request.method !== 'GET') throw new RequestError(405, 'Bu yöntem desteklenmiyor.');
     const code = requiredText({ code: options.get('code') }, 'code', 'Barkod', 80);
-    const barcode = trace.traceBarcode(code);
-    const [catalog, matches] = await Promise.all([
-      pilotCatalog.findOne({ _id: JSON.stringify([storeId, barcode]) }),
-      records.find({ ...storeScope(storeId), code: { $in: trace.barcodeVariants(code) } },
-        { projection: { name: 1, code: 1, lot: 1, type: 1, status: 1 } }).sort({ createdAt: -1, _id: -1 }).toArray(),
+    let catalog = await pilotCatalog.findOne({ _id: JSON.stringify([storeId, trace.traceBarcode(code)]) });
+    if (!catalog) {
+      const { rows } = await query(`SELECT document FROM pilot_catalog
+        WHERE document->>'storeId' = $1 AND document->>'productCode' = $2 LIMIT 2`, [storeId, code]);
+      if (rows.length > 1) throw new RequestError(409, 'Bu ürün koduyla birden fazla kayıt var. Barkodla sorgulayın.');
+      catalog = rows[0]?.document;
+    }
+    const barcode = catalog?.barcode ?? code;
+    const barcodes = trace.barcodeVariants(barcode);
+    const [matches, stock] = await Promise.all([
+      records.find({ ...storeScope(storeId), code: { $in: barcodes } },
+        { projection: { name: 1, code: 1, lot: 1, type: 1, status: 1, details: 1 } }).sort({ createdAt: -1, _id: -1 }).toArray(),
+      query(`SELECT warehouse_code AS "warehouseCode", quantity, source_updated_at AS "sourceUpdatedAt"
+        FROM inventory_snapshots WHERE store_id = $1 AND barcode = $2 ORDER BY warehouse_code`, [storeId, trace.traceBarcode(barcode)]),
     ]);
+    const card = catalog && Object.fromEntries(['barcode', 'name', 'productCode', 'price', 'caseQuantity', 'priceValidFrom',
+      'priceValidTo', 'orderStatus', 'saleStatus'].map(field => [field, catalog[field]]));
     json(response, 200, {
-      catalog: catalog ? { barcode: catalog.barcode, name: catalog.name } : null,
-      records: matches.map(({ _id, name, code, lot, type, status }) => ({ id: _id, name, barcode: code, lot, type, status })),
+      catalog: card ?? null, snapshots: stock.rows, storeId, barcodes,
+      records: matches.map(({ _id, name, code, lot, type, status, details }) =>
+        ({ id: _id, name, barcode: code, lot, type, status, expiryDate: details?.expiryDate ?? null })),
     });
   }
 
@@ -1434,7 +1476,7 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
   async function handleApi(request, response, path, session) {
     if (path === '/api/trace' || path.startsWith('/api/trace/')) return handleTrace(request, response, path, session);
     if (session.role === 'trace') throw new RequestError(403, 'Bu hesap MU TRACE’e erişebilir.');
-    if (path === '/api/scan-lite') return scanLite(request, response, session);
+    if (path === '/api/scan-lite' || path === '/api/scan-lite/import') return scanLite(request, response, session, path.endsWith('/import'));
     if (path === '/api/scan' || path.startsWith('/api/scan/')) {
       if (!scanEnabled(session)) throw new RequestError(404, 'Bu modül şu anda kullanıma açık değil.');
       return handleScan(request, response, path, session, new URL(request.url, 'http://localhost').searchParams);

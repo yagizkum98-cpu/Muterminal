@@ -39,6 +39,18 @@ CREATE TABLE IF NOT EXISTS pilot_catalog (
   id text PRIMARY KEY,
   document jsonb NOT NULL CHECK (jsonb_typeof(document) = 'object')
 );
+CREATE INDEX IF NOT EXISTS pilot_catalog_product_code_idx ON pilot_catalog ((document->>'storeId'), (document->>'productCode'));
+
+CREATE TABLE IF NOT EXISTS inventory_snapshots (
+  store_id text NOT NULL,
+  barcode text NOT NULL,
+  warehouse_code text NOT NULL,
+  quantity integer NOT NULL,
+  source_updated_at timestamptz NOT NULL,
+  imported_by text NOT NULL,
+  imported_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (store_id, barcode, warehouse_code)
+);
 
 CREATE TABLE IF NOT EXISTS product_evidence (
   id text PRIMARY KEY CHECK (id ~ '^[0-9a-f]{24}$'),
