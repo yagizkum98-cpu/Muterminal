@@ -1,4 +1,9 @@
 const crossDock = 'Cross-Dock';
+const display = 'Teşhir';
+const hotSale = 'Sıcak Satış';
+const recipeControl = 'Reçeteli Ürün';
+const recipeChecks = ['Uygun', 'Uygunsuz', 'Doğrulanmadı'];
+const recipeCompliance = 'Reçete kontrolü onayı';
 const saleApproval = 'Satılabilir (ön onay)';
 const assessments = [
   { choice: saleApproval, guarded: true },
@@ -79,6 +84,53 @@ const operations = {
       { choice: 'Düzeltme talebini reddet', result: 'Düzeltme talebi reddedildi', from: ['Onay bekliyor'] },
     ],
   },
+  [display]: {
+    title: display, feature: 'MuDisplay Lite', workflow: true,
+    description: 'Teşhir alanını, raf yerleşimini ve fiyat etiketini kontrol edin. Kontrolü MuApproval Lite üzerinden incelemeye gönderin.',
+    initial: 'Talep açıldı', quantityLabel: 'Teşhir adedi',
+    fields: [
+      { name: 'displayArea', label: 'Teşhir alanı', type: 'select', options: ['Ana reyon', 'Gondol', 'Kasa önü', 'Kampanya alanı'] },
+      { name: 'displayCondition', label: 'Ürün durumu', type: 'select', options: ['Uygun', 'Düzeltme gerekli'] },
+      { name: 'displayLabel', label: 'Fiyat etiketi', type: 'select', options: ['Uygun', 'Düzeltme gerekli'] },
+      { name: 'displayPlacement', label: 'Raf yerleşimi', type: 'select', options: ['Uygun', 'Düzeltme gerekli'] },
+    ],
+    actions: [
+      { choice: 'Teşhir uygunluğu onayı', result: 'Teşhir uygunluğu onaylandı', requestable: true },
+      { choice: 'Teşhir düzeltme talebi', result: 'Teşhir düzeltme talebi onaylandı', requestable: true },
+    ],
+  },
+  [hotSale]: {
+    title: hotSale, feature: 'MuHotSale Lite', workflow: true,
+    description: 'Pilot katalogda satışa açık ve SKT kaydı doğrulanabilen lotlar için satış önceliği veya kampanya önerisi gönderin. Onay, yetkili ekibe iletilebilecek bir karar kaydı oluşturur.',
+    initial: 'Talep açıldı', quantityLabel: 'Önerilen adet',
+    fields: [
+      { name: 'expiryDate', label: 'Son kullanma tarihi', type: 'date' },
+      { name: 'saleCondition', label: 'Fiziksel satış uygunluğu', type: 'select', options: ['Satışa uygun', 'Satışa uygun değil'] },
+      { name: 'saleAction', label: 'Satış aksiyonu', type: 'select', options: ['Satış önceliği', 'Kampanya önerisi'] },
+    ],
+    actions: [
+      { choice: 'Satış önceliği', result: 'Satış önceliği onaylandı', requestable: true },
+      { choice: 'Kampanya önerisi', result: 'Kampanya önerisi onaylandı', requestable: true },
+    ],
+  },
+  [recipeControl]: {
+    title: recipeControl, feature: 'MuRecipe Lite', workflow: true, requiresRecipe: true,
+    description: 'MuScan Lite ile reçete kartını açın ve üretim lotunun kontrolünü kaydedin. Üretim ve satışa açma yetkili süreçlerde yürütülür.',
+    initial: 'Talep açıldı', quantityLabel: 'Kontrol edilen adet',
+    fields: [
+      { name: 'ingredientCheck', label: 'Bileşen ve miktar kontrolü', type: 'select', options: recipeChecks },
+      { name: 'expiryCheck', label: 'Lot ve SKT kontrolü', type: 'select', options: recipeChecks },
+      { name: 'blockCheck', label: 'RKS ve blokaj kontrolü', type: 'select', options: recipeChecks },
+      { name: 'allergenCheck', label: 'Reçete ve alerjen kontrolü', type: 'select', options: recipeChecks },
+      { name: 'hygieneCheck', label: 'Hijyen kontrolü', type: 'select', options: recipeChecks },
+      { name: 'foodSafetyCheck', label: 'Gıda güvenliği kontrolü', type: 'select', options: recipeChecks },
+      { name: 'temperatureCheck', label: 'Sıcaklık kontrolü', type: 'select', options: [...recipeChecks, 'Uygulanmaz'] },
+    ],
+    actions: [
+      { choice: recipeCompliance, result: 'Reçete kontrolü onaylandı', requestable: true },
+      { choice: 'Reçete uygunsuzluğu incelemesi', result: 'Reçete uygunsuzluğu incelemesi kaydedildi', requestable: true },
+    ],
+  },
   [crossDock]: {
     title: crossDock, feature: 'MuDock',
     description: 'Doğrudan sevkiyat uygunluğunu değerlendirin ve uygun ürün için varış noktası kaydedin.',
@@ -92,4 +144,4 @@ const operations = {
   },
 };
 
-module.exports = { operations, saleApproval, assessments, crossDock };
+module.exports = { operations, saleApproval, assessments, crossDock, hotSale, recipeControl, recipeCompliance };

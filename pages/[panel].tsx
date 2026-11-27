@@ -275,11 +275,13 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
       <small id="module-feature"></small>
       <h2 id="module-title">{t("Operasyon modülleri")}</h2>
       <p id="module-description"></p>
-      <p className="safety">{t("Satış ön onayı yalnızca MuTerminal’de kayda geçer. RKS blokajının kaldırılması, SKT uygunluğu ve stok hareketleri yetkili sistemlerde ayrıca doğrulanmalıdır.")}</p>
+      <p className="safety" id="module-safety">{t("Satış ön onayı yalnızca MuTerminal’de kayda geçer. RKS blokajının kaldırılması, SKT uygunluğu ve stok hareketleri yetkili sistemlerde ayrıca doğrulanmalıdır.")}</p>
     </section>
     <section id="entry-panel" hidden>
       <h2 id="entry-title">{t("Manuel ürün kaydı")}</h2>
+      <p id="workflow-scan" hidden><button type="button" className="secondary" data-module-shortcut="scan-lite">{t("MuScan Lite ile ürün sorgula")}</button></p>
       <form id="product-form">
+        <div id="entry-recipe" hidden></div>
         <div className="fields">
           <div><label htmlFor="name">{t("Ürün adı")}</label><input id="name" name="name" maxLength={150} required /></div>
           <div><label htmlFor="code">{t("Barkod")}</label><input id="code" name="code" maxLength={80} required /></div>
@@ -289,12 +291,16 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
           <div id="quantity-field"><label htmlFor="qty" id="quantity-label">{t("Adet")}</label><input id="qty" name="qty" type="number" min="1" step="1" required /></div>
         </div>
         <div className="fields" id="operation-fields"></div>
+        <div id="entry-reason-field" hidden>
+          <label htmlFor="entry-reason">{t("Personel açıklaması")}</label>
+          <textarea id="entry-reason" name="reason" maxLength={1000} disabled />
+        </div>
         <p id="stock-preview" role="status" hidden></p>
         <label id="expired-field"><input id="expired" name="expired" type="checkbox" />{" " + t("Son kullanma tarihi geçmiş")}</label>
         <EvidenceFields prefix="entry" />
         <p><button type="submit" id="save-product">{t("Ürünü kaydet")}</button> <button type="button" className="secondary" id="cancel-edit" hidden>{t("Vazgeç")}</button></p>
-        <p id="product-status" className="status" role="status"></p>
       </form>
+      <p id="product-status" className="status" role="status"></p>
     </section>
     <section id="records-panel" aria-labelledby="records-title" hidden>
       <h2 id="records-title">{t("Operasyon kayıtları")}</h2>
@@ -315,11 +321,16 @@ export default function Panel({ title, role, showScan, mobile, canSwitchPanels }
     <section id="decision" hidden>
       <h2 id="decision-title">{t("Operasyon kararı")}</h2>
       <p id="selected"></p>
+      <p id="decision-recheck-note" hidden></p>
+      <div id="decision-recipe" hidden></div>
       <form id="decision-form">
         <label htmlFor="staff">{t("Yetkili personel")}</label>
         <input id="staff" name="staff" maxLength={100} required />
-        <label htmlFor="choice">{t("Karar")}</label>
-        <select id="choice" name="choice" required></select>
+        <div id="decision-choice-field">
+          <label htmlFor="choice">{t("Karar")}</label>
+          <select id="choice" name="choice" required></select>
+        </div>
+        <div className="fields" id="decision-workflow-fields"></div>
         <div id="destination-field" hidden>
           <label htmlFor="destination">{t("Varış noktası")}</label>
           <input id="destination" name="destination" maxLength={150} disabled />

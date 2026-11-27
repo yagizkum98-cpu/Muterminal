@@ -97,6 +97,12 @@ export default function MobileHome({ account, approval, invalidCode }: Props) {
           <span>{t("Operasyon kayıtlarını ve MuDecision dosyalarını açın.")}</span></a>}
         {account.corePath && <a href={`${account.corePath}#muscan-lite`}><strong>MuScan Lite</strong>
           <span>{t("Barkodla ürün sorgula.")}</span></a>}
+        {account.corePath && <a href={`${account.corePath}#mudisplay-lite`}><strong>MuDisplay Lite</strong>
+          <span>{t("Teşhir kontrolünü incelemeye gönderin.")}</span></a>}
+        {account.corePath && <a href={`${account.corePath}#muhotsale-lite`}><strong>MuHotSale Lite</strong>
+          <span>{t("Uygun lotlar için satış aksiyonu önerin.")}</span></a>}
+        {account.corePath && <a href={`${account.corePath}#murecipe-lite`}><strong>MuRecipe Lite</strong>
+          <span>{t("Reçete kartlarını açın ve üretim kontrolü kaydedin.")}</span></a>}
         {account.corePath && <a href={`${account.corePath}#muapproval-lite`}><strong>MuApproval Lite</strong>
           <span>{t("Karar taleplerini ve sonuçlarını görün.")}</span></a>}
         {account.canScan && <a href="/staff/scan?mobil=1"><strong>MuTerminal Scan</strong>

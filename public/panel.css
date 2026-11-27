@@ -88,6 +88,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .scan-product-card dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 12px; }
 .scan-product-card dt { color: #486558; font-size: .875rem; }
 .scan-product-card dd { margin: 3px 0 0; font-weight: 650; overflow-wrap: anywhere; }
+.recipe-card { margin: 12px 0; padding: 12px; border: 1px solid #dce7e0; border-radius: 10px; background: #f5faf7; overflow-wrap: anywhere; }
+.recipe-card h4, .recipe-card p:last-child { margin-block: 0; }
+.recipe-card ul { margin-block: 8px; padding-inline-start: 1.3rem; }
 .evidence-fields { min-width: 0; border: 1px solid #dce7e0; border-radius: 8px; margin: 14px 0; }
 .evidence-fields input[type="file"] { max-width: 100%; }
 #pilot-risks { list-style: none; padding: 0; margin: 0; }

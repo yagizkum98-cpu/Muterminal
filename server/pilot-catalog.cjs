@@ -16,6 +16,26 @@ function validDate(value) {
     && new Date(value).toISOString().startsWith(value);
 }
 
+function recipeDetails(recipe) {
+  if (recipe === null) return null;
+  const code = optionalText(recipe?.code, 'Reçete kodu', 80);
+  const allergens = optionalText(recipe?.allergens, 'Alerjen bilgisi', 500);
+  if (!code || !allergens || typeof recipe.temperatureRequired !== 'boolean' || !Array.isArray(recipe.components) ||
+      recipe.components.length < 1 || recipe.components.length > 25) {
+    throw new CatalogError('Reçete kodu, alerjen bilgisi, sıcaklık gereksinimi ve 1–25 bileşen girin.');
+  }
+  const components = recipe.components.map(component => {
+    const name = optionalText(component?.name, 'Bileşen', 100);
+    const amount = optionalText(component?.amount, 'Miktar', 16)?.replace(',', '.');
+    const unit = optionalText(component?.unit, 'Birim', 24);
+    if (!name || !unit || !amount || !/^\d{1,9}(\.\d{1,6})?$/.test(amount) || Number(amount) <= 0) {
+      throw new CatalogError('Her bileşen için ad, pozitif miktar ve birim girin.');
+    }
+    return { name, amount, unit };
+  });
+  return { code, allergens, temperatureRequired: recipe.temperatureRequired, components };
+}
+
 function catalogDetails(input) {
   const details = {};
   for (const [field, limit] of [['productCode', 80], ['orderStatus', 150], ['saleStatus', 20],
@@ -42,6 +62,7 @@ function catalogDetails(input) {
   if (details.saleStatus && !['sellable', 'blocked', 'unknown'].includes(details.saleStatus)) {
     throw new CatalogError('Kaynak satış durumu geçersiz.');
   }
+  if (Object.hasOwn(input, 'recipe')) details.recipe = recipeDetails(input.recipe);
   return details;
 }
 

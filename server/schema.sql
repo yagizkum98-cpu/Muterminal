@@ -285,8 +285,8 @@ BEGIN
     IF NEW.document->'decisions' IS NOT DISTINCT FROM OLD.document->'decisions'
       AND NEW.document->'proposal' IS NOT DISTINCT FROM OLD.document->'proposal'
       AND NEW.document->>'status' IS NOT DISTINCT FROM OLD.document->>'status' THEN RETURN NEW; END IF;
-    decision := NEW.document->'decisions'->-1;
   END IF;
+  decision := NEW.document->'decisions'->-1;
   scan_event := COALESCE(decision->>'source' = 'scan', false) OR NEW.document#>'{proposal,scanCheck}' IS NOT NULL;
   event_key := 'product:' || NEW.id || ':' || txid_current();
   IF scan_event THEN

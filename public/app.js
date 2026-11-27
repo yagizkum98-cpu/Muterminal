@@ -57,6 +57,7 @@ let lotFilter;
 let barcodeHistory;
 let editingId;
 let entryRevision = 0;
+let entryRecipeRevision;
 let products = [];
 let logs = [];
 let currentId = null;
@@ -257,6 +258,14 @@ function configureDepartments(groups) {
   )).join('');
 }
 
+function renderRecipe(recipe) {
+  return `<div class="recipe-card"><strong>${escapeHtml(t('Reçete kartı'))} · ${escapeHtml(recipe.code)}</strong>
+    <ul>${recipe.components.map(({ name, amount, unit }) => `<li>${escapeHtml(name)} · ${escapeHtml(amount)} ${escapeHtml(unit)}</li>`).join('')}</ul>
+    <p>${escapeHtml(t('Alerjen bilgisi'))} · ${escapeHtml(recipe.allergens)}</p>
+    ${recipe.temperatureRequired ? `<p>${escapeHtml(t('Bu reçete için sıcaklık kontrolü zorunludur.'))}</p>` : ''}
+  </div>`;
+}
+
 function renderDetails(product) {
   if (!product.details) return ("<small>" + escapeHtml(t("Operasyon bilgileri eksik")) + "</small>");
   const values = operations[product.type].fields.map(field => {
@@ -264,10 +273,11 @@ function renderDetails(product) {
     const hasTime = field.type === 'datetime-local';
     const date = typeof value === 'string' && (hasTime || field.type === 'date') ? Date.parse(hasTime ? `${value}Z` : value) : NaN;
     const formatted = Number.isFinite(date) ? (hasTime ? detailDateTimeFormat : detailDateFormat).format(date) : value;
-    return [field.label, formatted ?? '—'];
+    return [field.label, field.type === 'select' ? t(value) : formatted ?? '—'];
   });
   if (product.details.destination) values.push(['Varış noktası', product.details.destination]);
-  return values.map(([label, value]) => `<small>${escapeHtml(t(label))}</small><br>${escapeHtml(value)}<br>`).join('');
+  return values.map(([label, value]) => `<small>${escapeHtml(t(label))}</small><br>${escapeHtml(value)}<br>`).join('') +
+    (product.details.recipe ? renderRecipe(product.details.recipe) : '');
 }
 
 function deleteButton(product) {
@@ -296,6 +306,8 @@ function rowActions(product) {
     const available = product.actions.some(action => action.releaseTemporary);
     const disabled = available ? '' : (" disabled title=\"" + escapeHtml(t("Blokaj bitiş zamanı henüz dolmadı")) + "\"");
     actions.push(`<button type="button" data-action="release" data-id="${id}"${disabled}>${escapeHtml(t("Blokajı kaldır"))}</button>`);
+  } else if (product.recheck?.actor === panel.email && operations[product.type].workflow) {
+    actions.push(`<button type="button" data-action="recheck" data-id="${id}">${escapeHtml(t("Ek kontrol kaydet"))}</button>`);
   } else if (!product.proposal && product.actions.length) {
     actions.push(`<button type="button" data-action="decide" data-id="${id}">${panel.canApprove ? t("Operasyon kararı") : t("Operasyon talebi")}</button>`);
   }
@@ -443,7 +455,7 @@ function renderHistory() {
       <td>${escapeHtml(t(operations[log.type]?.title ?? log.type))}</td>
       <td>${escapeHtml(log.staff)}${log.actor ? `<br><small>${escapeHtml(log.actor)}</small>` : ''}
         ${log.requestedBy && log.requestedBy !== log.actor ? `<br><small>${escapeHtml(t('Talep sahibi'))} · ${escapeHtml(log.requestedBy)}</small>` : ''}</td>
-      <td>${log.kind === 'assessment' ? '<small>MuDecision</small><br>' : ''}${escapeHtml(t(log.choice))}<br><small>${escapeHtml(log.reason)}</small><br>${evidenceLink(log.id, log.evidence)}</td>
+      <td>${log.kind === 'assessment' ? '<small>MuDecision</small><br>' : ''}${escapeHtml(t(log.choice))}<br><small>${escapeHtml(log.reason)}</small><br>${log.details && operations[log.type]?.workflow ? renderDetails(log) : ''}${evidenceLink(log.id, log.evidence)}</td>
       <td>${escapeHtml(t(log.result))}${log.destination ? `<br><small>${escapeHtml(log.destination)}</small>` : ''}</td>
     </tr>`).join('') || ("<tr><td colspan=\"6\">" + escapeHtml(t("Karar kaydı bulunamadı")) + "</td></tr>");
 }
@@ -541,6 +553,7 @@ function renderApproval() {
     return `<article class="approval-item"${proposal ? ` id="talep-${escapeHtml(proposal.id)}" tabindex="-1"` : ''}>
       <h3>${escapeHtml(product.name)}</h3>
       <p>${escapeHtml(storeName(product.storeId))} · ${escapeHtml(t(operations[product.type].title))} · ${escapeHtml(t('Lot'))} ${escapeHtml(product.lot)}</p>
+      ${operations[product.type].workflow ? `<p>${escapeHtml(t('Barkod'))} ${escapeHtml(product.code)} · ${escapeHtml(t('{qty} adet', { qty: product.qty }))}</p><div>${renderDetails(product)}</div>` : ''}
       ${proposal ? `<p><strong>${escapeHtml(t(proposal.choice))}</strong> · ${escapeHtml(proposal.actor)}</p><p>${escapeHtml(proposal.reason)}</p>
         <p>${evidenceLink(product.id, proposal.evidence ?? product.evidence)}</p>` : returned
         ? `<p><strong>${escapeHtml(t('Ek kontrol istendi'))}</strong> · ${escapeHtml(returned.actor)}</p><p>${escapeHtml(returned.reason)}</p>`
@@ -670,26 +683,54 @@ async function loadTeam() {
   </li>`).join('') || ("<li>" + escapeHtml(t("Henüz personel hesabı yok.")) + "</li>");
 }
 
+function operationField(field, value = '', recipe) {
+  const label = `<label for="${field.name}">${escapeHtml(t(field.label))}</label>`;
+  if (field.type === 'select') {
+    const choices = field.name.endsWith('temperatureCheck') && recipe?.temperatureRequired
+      ? field.options.filter(option => option !== 'Uygulanmaz') : field.options;
+    const options = choices.map(option => `<option value="${escapeHtml(option)}"${value === option ? ' selected' : ''}>${escapeHtml(t(option))}</option>`).join('');
+    return `<div>${label}<select id="${field.name}" name="${field.name}" required><option value="">${escapeHtml(t('Seçin'))}</option>${options}</select></div>`;
+  }
+  const attributes = field.type === 'number' ? ' min="0" step="1"' : field.max ? ` maxlength="${field.max}"` : '';
+  return `<div>${label}<input id="${field.name}" name="${field.name}" type="${field.type}" value="${escapeHtml(value)}"${attributes} required></div>`;
+}
+
+function operationFormDetails(operation, data) {
+  return Object.fromEntries(operation.fields.map(field => [
+    field.name, field.type === 'number' ? Number(data.get(field.name)) : data.get(field.name),
+  ]));
+}
+
 function renderEntry(product) {
   const operation = operations[activeModule];
   const stockCount = activeModule === 'Depo Fark';
   const checksDate = activeModule === 'SKT';
+  const workflow = Boolean(operation.workflow);
   const quantityLabel = operation.quantityLabel || 'Adet';
   editingId = product?.id;
   entryRevision++;
+  entryRecipeRevision = undefined;
   $('product-form').reset();
+  $('product-form').hidden = Boolean(operation.requiresRecipe);
+  $('entry-recipe').hidden = true;
+  $('entry-recipe').replaceChildren();
   for (const id of ['name', 'code', 'lot', 'qty']) {
     $(id).value = product?.[id] ?? '';
-    $(id).readOnly = Boolean(product);
+    $(id).readOnly = Boolean(product) || (operation.requiresRecipe === true && ['name', 'code'].includes(id));
   }
-  $('entry-title').textContent = product ? t("Operasyon bilgilerini tamamla") : t("Manuel ürün kaydı");
+  $('decision-workflow-fields').replaceChildren();
+  $('entry-title').textContent = product ? t("Operasyon bilgilerini tamamla") : workflow ? t("Yeni talep") : t("Manuel ürün kaydı");
+  $('workflow-scan').hidden = !workflow;
+  $('entry-reason-field').hidden = !workflow;
+  $('entry-reason').disabled = !workflow;
+  $('entry-reason').required = workflow;
   $('department-field').hidden = Boolean(product);
   $('department').disabled = Boolean(product);
   $('department').value = defaultDepartment();
   $('entry-store-field').hidden = Boolean(product) || panel.role !== 'admin';
-  $('entry-store').disabled = $('entry-store-field').hidden;
+  $('entry-store').disabled = $('entry-store-field').hidden || Boolean(operation.requiresRecipe);
   $('entry-store').value = activeStore || panel.storeId;
-  $('save-product').textContent = product ? t("Bilgileri kaydet") : t("Ürünü kaydet");
+  $('save-product').textContent = product ? t("Bilgileri kaydet") : workflow ? t("Onaya gönder") : t("Ürünü kaydet");
   $('cancel-edit').hidden = !product;
   $('entry-evidence').hidden = Boolean(product);
   $('quantity-label').textContent = t(quantityLabel);
@@ -697,12 +738,9 @@ function renderEntry(product) {
   $('quantity-field').hidden = stockCount;
   $('qty').required = !stockCount && !product;
   $('qty').disabled = stockCount || Boolean(product);
-  $('expired-field').hidden = checksDate || Boolean(product);
-  $('expired').disabled = checksDate || Boolean(product);
-  $('operation-fields').innerHTML = operation.fields.map(field => {
-    const attributes = field.type === 'number' ? ' min="0" step="1"' : field.max ? ` maxlength="${field.max}"` : '';
-    return `<div><label for="${field.name}">${escapeHtml(t(field.label))}</label><input id="${field.name}" name="${field.name}" type="${field.type}"${attributes} required></div>`;
-  }).join('');
+  $('expired-field').hidden = checksDate || workflow || Boolean(product);
+  $('expired').disabled = $('expired-field').hidden;
+  $('operation-fields').innerHTML = operation.fields.map(field => operationField(field)).join('');
   $('stock-preview').hidden = true;
   showStatus('product-status', '');
 }
@@ -778,6 +816,7 @@ function selectModule(type, product) {
   $('module-title').textContent = t(module.title);
   $('module-feature').textContent = module.feature;
   $('module-description').textContent = t(isReadOnly ? 'Cross-Dock sonraki geliştirme aşamasında kullanıma açılacak.' : module.description);
+  $('module-safety').hidden = Boolean(module.workflow);
   $('clear-lot').hidden = !product;
   $('clear-lot').textContent = t(barcodeHistory ? 'Ürün filtresini kaldır' : 'Lot filtresini kaldır');
   $('lot-filter').hidden = !product;
@@ -899,23 +938,25 @@ $('product-form').addEventListener('submit', async event => {
   const revision = entryRevision;
   const id = editingId;
   const data = new FormData(form);
-  const { name, code, lot, qty, department, storeId } = Object.fromEntries(data);
-  const details = Object.fromEntries(operations[module].fields.map(field => [
-    field.name, field.type === 'number' ? Number(data.get(field.name)) : data.get(field.name),
-  ]));
+  const { name, code, lot, qty, department, storeId, reason } = Object.fromEntries(data);
+  const operation = operations[module];
+  const recipeRevision = entryRecipeRevision;
+  const details = operationFormDetails(operation, data);
   button.disabled = true;
   showStatus('product-status', 'Kaydediliyor…');
   try {
     if (id) await writeApi(`/api/products/${id}/details`, 'POST', { details });
     else await writeApi('/api/products', 'POST', {
-      name, code, lot, department, storeId, type: module, qty: Number(qty), expired: data.has('expired'), details,
+      name, code, lot, department, storeId: operation.requiresRecipe ? $('entry-store').value : storeId, reason,
+      type: module, qty: Number(qty), expired: data.has('expired'), details, recipeRevision,
       evidence: await formEvidence('entry'),
     });
     if (module === activeModule && revision === entryRevision) {
       renderEntry();
       $('search').value = '';
       renderRows();
-      showStatus('product-status', id ? t("Operasyon bilgileri kaydedildi.") : `Ürün kaydedildi · ${departmentLabel(department)}`);
+      showStatus('product-status', id ? t("Operasyon bilgileri kaydedildi.") :
+        operation.workflow ? t("Talep onaya gönderildi.") : `Ürün kaydedildi · ${departmentLabel(department)}`);
     }
     await refresh();
   } catch (error) {
@@ -994,14 +1035,27 @@ function handleProductAction(event) {
   if ($('decision-form').querySelector('button').disabled) return;
   currentId = product.id;
   const returned = button.dataset.action === 'recheck' ? product.recheck : undefined;
+  const operation = operations[product.type];
+  const workflowRecheck = Boolean(operation.workflow && returned);
+  const recipe = workflowRecheck && product.details.recipe;
   decisionKind = button.dataset.action === 'assessment' || returned?.kind === 'assessment' ? 'assessment' : undefined;
-  $('decision-title').textContent = decisionKind ? (panel.canApprove ? t("MuDecision kararı") : t("MuDecision önerisi")) : (panel.canApprove ? t("Operasyon kararı") : t("Operasyon talebi"));
+  $('decision-title').textContent = workflowRecheck ? t("Ek kontrol kaydet")
+    : decisionKind ? (panel.canApprove ? t("MuDecision kararı") : t("MuDecision önerisi"))
+    : (panel.canApprove ? t("Operasyon kararı") : t("Operasyon talebi"));
   $('selected').textContent = `${product.name} · ${storeName(product.storeId)} · ${operations[product.type].title} · Barkod ${product.code} · Lot ${product.lot}`;
+  $('decision-recheck-note').hidden = !returned;
+  $('decision-recheck-note').textContent = returned ? `${t('İnceleme gerekçesi')} · ${returned.reason}` : '';
+  $('decision-recipe').hidden = !recipe;
+  $('decision-recipe').innerHTML = recipe ? renderRecipe(recipe) : '';
   $('proposal-field').hidden = !decisionKind || !panel.canApprove;
   $('submit-as-proposal').checked = Boolean(returned);
   $('choice').value = '';
   $('reason').value = '';
   $('destination').value = '';
+  $('decision-choice-field').hidden = workflowRecheck;
+  $('choice').disabled = workflowRecheck;
+  $('decision-workflow-fields').innerHTML = workflowRecheck
+    ? operation.fields.map(field => operationField({ ...field, name: `recheck-${field.name}` }, product.details[field.name], recipe)).join('') : '';
   $('decision-evidence-category').value = '';
   $('decision-evidence-photo').value = '';
   renderDecisionChoices(product);
@@ -1039,12 +1093,22 @@ document.addEventListener('muterminal:scan-open', async event => {
 });
 
 document.addEventListener('muterminal:scan-entry', event => {
-  const { operation, name, barcode, lot } = event.detail;
+  const { operation, name, barcode, lot, expiryDate, storeId, recipe, recipeRevision } = event.detail;
   if (!Object.hasOwn(operations, operation) || operations[operation].disabled) return;
+  if (operations[operation].requiresRecipe && (!recipe || !recipeRevision)) return;
   selectModule(operation);
   $('name').value = name;
   $('code').value = barcode;
   $('lot').value = lot;
+  if ($('expiryDate') && expiryDate) $('expiryDate').value = expiryDate;
+  if (storeId && panel.role === 'admin') $('entry-store').value = storeId;
+  if (operations[operation].requiresRecipe) {
+    entryRecipeRevision = recipeRevision;
+    $('entry-recipe').innerHTML = renderRecipe(recipe);
+    $('entry-recipe').hidden = false;
+    $('operation-fields').innerHTML = operations[operation].fields.map(field => operationField(field, '', recipe)).join('');
+    $('product-form').hidden = false;
+  }
   $(lot ? 'department' : 'lot').focus();
 });
 
@@ -1102,6 +1166,12 @@ $('decision-form').addEventListener('submit', async event => {
   showStatus('decision-status', 'Kaydediliyor…');
   try {
     const body = Object.fromEntries(new FormData(form));
+    const product = products.find(item => item.id === id);
+    const operation = operations[product?.type];
+    if (operation?.workflow) {
+      body.details = Object.fromEntries(operation.fields.map(field => [field.name, body[`recheck-${field.name}`]]));
+      body.submitAsProposal = true;
+    }
     if (decisionKind) body.kind = decisionKind;
     if (decisionKind && $('submit-as-proposal').checked) body.submitAsProposal = true;
     body.evidence = await formEvidence('decision');
@@ -1182,6 +1252,7 @@ $('calendar-days').addEventListener('click', event => {
 });
 $('store-filter').addEventListener('change', event => {
   activeStore = event.target.value;
+  if (operations[activeModule]?.requiresRecipe) renderEntry();
   renderDepartmentReportScope();
   currentId = null;
   $('decision').hidden = true;
@@ -1346,6 +1417,7 @@ function reportProduct(product) {
     label: field.label, type: field.type, value: product.details[field.name],
   })) : [];
   if (product.details?.destination) fields.push({ label: 'Varış noktası', type: 'text', value: product.details.destination });
+  if (product.details?.recipe) fields.push({ label: 'Reçete kodu', type: 'text', value: product.details.recipe.code });
   return { ...reportRecord(product), qty: operationQuantity(product), fields, pending: Boolean(product.proposal), missingDetails: !product.details };
 }
 
@@ -1425,7 +1497,11 @@ async function start() {
     )).join('');
     configureDepartments(groups);
     const initialModule = window.location.hash === '#muscan-lite' ? scanModule
-      : window.location.hash === '#muapproval-lite' ? approvalModule : panel.role === 'staff' ? decisionModule : dashboardModule;
+      : window.location.hash === '#muapproval-lite' ? approvalModule
+      : window.location.hash === '#mudisplay-lite' ? 'Teşhir'
+      : window.location.hash === '#muhotsale-lite' ? 'Sıcak Satış'
+      : window.location.hash === '#murecipe-lite' ? Object.keys(operations).find(id => operations[id].requiresRecipe) ?? decisionModule
+      : panel.role === 'staff' ? decisionModule : dashboardModule;
     selectModule(initialModule);
     poll();
   } catch {

@@ -1,4 +1,4 @@
-export const evidenceCategories = ['Hasarlı ambalaj', 'Ürün etiketi', 'SKT bilgisi'];
+export const evidenceCategories = ['Hasarlı ambalaj', 'Ürün etiketi', 'SKT bilgisi', 'Teşhir fotoğrafı'];
 
 /** @param {File | undefined} file
  *  @param {string} category */

@@ -13,6 +13,9 @@ const pilotGroups: ModuleGroup[] = [
       { name: 'MuDifference', description: 'Fiziksel sayım ve stok farkı kaydı' },
       { name: 'MuDecision', description: 'Ürün ve lot bazında karar dosyası' },
       { name: 'MuLog', description: 'Gerekçeli karar geçmişi ve raporlar' },
+      { name: 'MuDisplay Lite', description: 'Teşhir alanı, raf kontrol listesi, fotoğraf ve yönetici incelemesi' },
+      { name: 'MuHotSale Lite', description: 'Lot uygunluğu kontrolü, satış önceliği ve kampanya önerisi' },
+      { name: 'MuRecipe Lite', description: 'Reçeteli ürün işareti, reçete kartı ve üretim kontrol kaydı' },
     ],
   },
   {
@@ -67,6 +70,9 @@ export default function ModuleRoadmap({ scanAvailable, dockAvailable, mobile }: 
       name: 'MuAnalytics Lite', status: 'Planlanan',
       description: 'Yetkili satış ve stok verisiyle satış hızı ve stok eğilimi analizi.',
     },
+    { name: 'MuDisplay', status: 'Planlanan', description: 'Teşhir görevleri, bildirimler ve raf kontrolleri.' },
+    { name: 'MuHotSale', status: 'Planlanan', description: 'Satış hızı ve stok verisine dayalı kampanya önerileri.' },
+    { name: 'MuRecipe', status: 'Planlanan', description: 'Bileşen, miktar, lot ve SKT doğrulama.' },
   ];
   const operations: Module[] = [
     {
@@ -75,6 +81,8 @@ export default function ModuleRoadmap({ scanAvailable, dockAvailable, mobile }: 
     },
     { name: 'MuWarehouse', status: 'Planlanan', description: 'Depo lokasyonları, kabul ve stok hareketlerinin takibi.' },
     { name: 'MuTransfer', status: 'Planlanan', description: 'Mağaza ve depolar arası transfer talebi, sevkiyat ve teslim takibi.' },
+    { name: 'MuDisplay Analytics', status: 'Planlanan', description: 'Mağaza ve teşhir performansı analizi.' },
+    { name: 'MuProduction', status: 'Planlanan', description: 'Üretim emirleri, reçete sürümleri, fire ve stok entegrasyonu.' },
   ];
   const phases: { title: string; period: string; overview: string; groups: ModuleGroup[] }[] = [
     { title: 'Mağaza pilotu', period: '0–3 ay',
@@ -83,6 +91,11 @@ export default function ModuleRoadmap({ scanAvailable, dockAvailable, mobile }: 
       overview: 'Saha kontrollerini yaygınlaştırma ve yetkili kaynaklarla veri alışverişi.', groups: [{ modules: development }] },
     { title: 'Depo ve lojistik', period: '6–12 ay',
       overview: 'MuTerminal Operations ile depo, sevkiyat ve transfer süreçlerine genişleme.', groups: [{ modules: operations }] },
+    { title: 'Satış ve üretim zekâsı', period: '12–24 ay',
+      overview: 'Talep tahmini ve üretim risklerinin analizi.', groups: [{ modules: [
+        { name: 'MuHotSale AI', status: 'Planlanan', description: 'Talep tahmini ve satış aksiyonu önerileri.' },
+        { name: 'MuRecipe AI', status: 'Planlanan', description: 'Reçete sapmaları ve üretim risklerine yönelik öneriler.' },
+      ] }] },
   ];
 
   return <section className="wrap modules-overview" id="moduller" aria-labelledby="modules-title">

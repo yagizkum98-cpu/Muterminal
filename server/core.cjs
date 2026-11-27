@@ -1,6 +1,6 @@
 const { createHash, randomBytes, scrypt, timingSafeEqual } = require('node:crypto');
 const { promisify } = require('node:util');
-const { operations, saleApproval, assessments, crossDock } = require('../operations.cjs');
+const { operations, saleApproval, assessments, crossDock, hotSale, recipeControl, recipeCompliance } = require('../operations.cjs');
 const { CatalogError, catalogDetails, readCatalogCsv } = require('./pilot-catalog.cjs');
 
 function createCore(database, challenge, { scanEnabled, crossDockEnabled, testerEmail }, trace, traceAccess, traceControls, mobileAccess, notifications) {
@@ -14,7 +14,7 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
   const departmentOptions = new Table('department_options');
   const pilotCatalog = new Table('pilot_catalog');
   const evidenceBodyLimit = 720_000;
-  const evidenceCategories = new Set(['Hasarlı ambalaj', 'Ürün etiketi', 'SKT bilgisi']);
+  const evidenceCategories = new Set(['Hasarlı ambalaj', 'Ürün etiketi', 'SKT bilgisi', 'Teşhir fotoğrafı']);
   const pilotStore = { id: 'pilot', name: 'Pilot Mağaza' };
   const panels = { admin: 'MuTerminal Admin', manager: 'MuTerminal Manager', staff: 'MuTerminal Staff' };
   const defaultPilotPassword = '1234567890';
@@ -778,6 +778,9 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
           throw new RequestError(400, `${field.label} sıfır veya pozitif bir tam sayı olmalıdır.`);
         }
         details[field.name] = value;
+      } else if (field.type === 'select') {
+        if (!field.options.includes(value)) throw new RequestError(400, `${field.label} için geçerli bir seçenek seçin.`);
+        details[field.name] = value;
       } else {
         details[field.name] = dateField(value, field);
       }
@@ -862,6 +865,7 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
   }
 
   function productRisk(product, now, settings = defaultSettings) {
+    if (operations[product.type]?.workflow) return null;
     const today = now.slice(0, 10);
     const expiry = product.details?.expiryDate;
     if (product.expired || (expiry && expiry < today)) return { label: 'SKT geçmiş', level: 'danger', blocks: true };
@@ -895,7 +899,102 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
   }
 
   function matchesAssessment(product, action) {
-    return !action.operation || (product.type === action.operation && product.details && action.from.includes(product.status));
+    return !operations[product.type]?.workflow &&
+      (!action.operation || (product.type === action.operation && product.details && action.from.includes(product.status)));
+  }
+
+  function workflowChoice(type, details) {
+    if (type === hotSale) return details.saleAction;
+    if (type === recipeControl) {
+      const verified = operations[type].fields.every(({ name }) => details[name] === 'Uygun' ||
+        (name === 'temperatureCheck' && details[name] === 'Uygulanmaz' && !details.recipe.temperatureRequired));
+      return verified ? recipeCompliance : 'Reçete uygunsuzluğu incelemesi';
+    }
+    return [details.displayCondition, details.displayLabel, details.displayPlacement].every(value => value === 'Uygun')
+      ? 'Teşhir uygunluğu onayı' : 'Teşhir düzeltme talebi';
+  }
+
+  function pendingDecision(decision) {
+    const requestId = newRecordId();
+    const entry = { ...decision, requestId, requestStatus: 'pending', result: 'Onay bekliyor' };
+    return { proposal: { ...entry, id: requestId }, log: { ...entry, kind: 'proposal' } };
+  }
+
+  function lockProductBarcode(client, product) {
+    const key = JSON.stringify([productStore(product), trace.traceBarcode(product.code)]);
+    return client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', ['mu-product:' + key]);
+  }
+
+  function recipeRevision(recipe) {
+    return hashText(JSON.stringify([recipe.code, recipe.allergens, recipe.temperatureRequired,
+      recipe.components.map(({ name, amount, unit }) => [name, amount, unit])])).toString('hex');
+  }
+
+  function catalogKey(product) {
+    return JSON.stringify([productStore(product), trace.traceBarcode(product.code)]);
+  }
+
+  async function lockedCatalog(client, product) {
+    const { rows } = await client.query('SELECT document FROM pilot_catalog WHERE id = $1 FOR SHARE', [catalogKey(product)]);
+    return rows[0]?.document;
+  }
+
+  function assertCurrentRecipe(catalog, product, revision) {
+    if (!catalog?.recipe || catalog.name !== product.name || recipeRevision(catalog.recipe) !== revision) {
+      throw new RequestError(409, 'Güncel reçete kartını MuScan Lite ile açıp kontrolü yeniden başlatın.');
+    }
+  }
+
+  function assertRecipeChecklist(details) {
+    if (details.recipe.temperatureRequired && details.temperatureCheck === 'Uygulanmaz') {
+      throw new RequestError(400, 'Bu reçete için sıcaklık kontrolü zorunludur.');
+    }
+  }
+
+  async function relatedProductRecords(client, product) {
+    const { rows } = await client.query(`
+      SELECT document FROM products
+      WHERE (store_id = $1 OR ($1 = 'pilot' AND store_id IS NULL)) AND barcode = ANY($2::text[])
+        AND (lot = $3 OR document->>'type' = 'RKS Blokaj')
+      ORDER BY id FOR SHARE`, [productStore(product), trace.barcodeVariants(product.code), product.lot]);
+    return rows.map(row => row.document).filter(entry => !entry.scanExample && !operations[entry.type]?.workflow);
+  }
+
+  async function validateRecipeLot(client, product) {
+    await lockProductBarcode(client, product);
+    await trace.assertNoRecall(client, traceKey(product));
+    const related = await relatedProductRecords(client, product);
+    const now = currentMinute();
+    if (product.expired || related.some(entry => productRisk(entry, now)?.blocks)) {
+      throw new RequestError(409, 'Bu lot veya ürün için açık risk var. Yönetici incelemesi için ilgili kontrolü uygunsuz olarak işaretleyin.');
+    }
+  }
+
+  async function validateHotSale(client, product, creating = false) {
+    const { expiryDate, saleCondition } = product.details;
+    const now = currentMinute();
+    if (product.expired || expiryDate < now.slice(0, 10) || saleCondition !== 'Satışa uygun') {
+      throw new RequestError(409, 'SKT’si geçmiş veya fiziksel olarak satışa uygun olmayan ürün için talep oluşturulamaz.');
+    }
+    await lockProductBarcode(client, product);
+    await trace.assertNoRecall(client, traceKey(product));
+    const catalog = await lockedCatalog(client, product);
+    if (catalog?.saleStatus !== 'sellable') {
+      throw new RequestError(409, 'Pilot katalogda bu ürünün satışa uygunluğu doğrulanmalıdır.');
+    }
+    if (creating && product.name !== catalog.name) {
+      throw new RequestError(409, 'Ürün adı pilot katalogla eşleşmelidir. MuScan Lite ile ürünü sorgulayın.');
+    }
+    const related = await relatedProductRecords(client, product);
+    if (related.some(entry => productRisk(entry, now)?.blocks || ['Satılamaz', 'Depo İade', 'İncelemede'].includes(entry.assessment) ||
+      ['Satılamaz', 'Ayrıldı', 'İadeye yönlendirildi'].includes(entry.status) || entry.type === 'Depo İade')) {
+      throw new RequestError(409, 'Bu ürünün blokajı veya lotun satışa engel bir kaydı var.');
+    }
+    const recordedExpiry = related.filter(entry => entry.type === 'SKT')
+      .map(entry => entry.details?.expiryDate).filter(Boolean).sort()[0];
+    if (recordedExpiry !== expiryDate) {
+      throw new RequestError(409, 'Girilen SKT bu lotun MuExpiry kaydıyla eşleşmelidir.');
+    }
   }
 
   async function state(session) {
@@ -927,7 +1026,8 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
       const recalled = recalls.has(lotKey);
       const effectiveRisk = recalled ? { label: 'Açık geri çağırma', level: 'danger', blocks: true }
         : relatedRks && !risk?.blocks ? { label: 'Mağazada açık RKS blokajı', level: 'warn', blocks: true } : risk;
-      const canAct = !recheck || (recheck.actor === session.email && recheck.source !== 'scan');
+      const workflow = operations[product.type]?.workflow;
+      const canAct = (!workflow && !recheck) || (recheck?.actor === session.email && recheck.source !== 'scan');
       const actions = canAct ? availableActions(product, effectiveRisk, now).filter(action => session.canApprove || action.requestable) : [];
       const assessmentActions = canAct && operationEnabled(product.type)
         ? assessments.filter(action => matchesAssessment(product, action) && (!action.guarded || !effectiveRisk?.blocks))
@@ -1129,7 +1229,7 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
   }
 
   function scanLot(recordsForBarcode, lot, settings, now, recalls, requester) {
-    const lotRecords = recordsForBarcode.filter(item => item.lot === lot);
+    const lotRecords = recordsForBarcode.filter(item => item.lot === lot && !operations[item.type]?.workflow);
     const product = lotRecords.find(item => operationEnabled(item.type) && item.recheck?.source === 'scan' && item.recheck.actor === requester)
       ?? lotRecords.find(item => item.type === 'SKT') ?? lotRecords.find(item => operationEnabled(item.type));
     if (!product) return null;
@@ -1228,7 +1328,8 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
         FROM inventory_snapshots WHERE store_id = $1 AND barcode = $2 ORDER BY warehouse_code`, [storeId, trace.traceBarcode(barcode)]),
     ]);
     const card = catalog && Object.fromEntries(['barcode', 'name', 'productCode', 'price', 'caseQuantity', 'priceValidFrom',
-      'priceValidTo', 'orderStatus', 'saleStatus'].map(field => [field, catalog[field]]));
+      'priceValidTo', 'orderStatus', 'saleStatus', 'recipe'].map(field => [field, catalog[field]]));
+    if (card?.recipe) card.recipeRevision = recipeRevision(card.recipe);
     json(response, 200, {
       catalog: card ?? null, snapshots: stock.rows, storeId, barcodes,
       records: matches.map(({ _id, name, code, lot, type, status, details }) =>
@@ -1328,13 +1429,24 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
     const product = await records.findOne(filter);
     if (!product) throw new RequestError(404, 'Ürün kaydı bulunamadı.');
     requireEnabledOperation(product.type);
+    const operation = operations[product.type];
+    const returned = product.recheck;
+    const workflow = operation.workflow;
+    if (workflow && (isAssessment || (!proposalId && returned?.actor !== session.email))) {
+      throw new RequestError(409, 'Bu işlem MuApproval Lite üzerinden değerlendirilmelidir.');
+    }
+    const details = workflow && !proposalId ? operationDetails(operation, body.details ?? {}) : product.details;
+    if (product.type === recipeControl) {
+      if (!proposalId) details.recipe = product.details.recipe;
+      assertRecipeChecklist(details);
+    }
+    const decisionChoice = workflow ? workflowChoice(product.type, details) : choice;
     const action = isAssessment
       ? assessments.find(option => option.choice === choice)
-      : operationAction(product, choice);
+      : operationAction(product, decisionChoice);
     if (!action) throw new RequestError(400, 'Bu operasyon için geçerli bir karar seçin.');
     requireEnabledOperation(action.operation);
-    const proposing = !session.canApprove || body.submitAsProposal === true;
-    const returned = product.recheck;
+    const proposing = !session.canApprove || (!proposalId && (workflow || body.submitAsProposal === true));
     if (returned && (!proposing || returned.actor !== session.email || (returned.source === 'scan' && !scanCheck))) {
       throw new RequestError(409, 'Ek kontrolü talep sahibi kendi kontrol akışından yeniden göndermelidir.');
     }
@@ -1367,14 +1479,18 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
       }
       filter.status = product.status;
     }
-    const status = action.result ?? choice;
+    const status = action.result ?? decisionChoice;
     filter.details = product.details ? { $exists: true } : { $exists: false };
     const update = isAssessment ? { assessment: status } : { status };
-    const decision = { time: new Date(), choice, result: status, staff, actor: session.email, reason };
+    const decision = { time: new Date(), choice: decisionChoice, result: status, staff, actor: session.email, reason };
     const evidence = readEvidence(body.evidence, session);
     if (evidence) decision.evidence = evidence.reference;
+    else if (workflow && proposal?.evidence) decision.evidence = proposal.evidence;
+    if (workflow) decision.details = details;
     const writeOptions = {
-      beforeUpdate: action.guarded ? client => trace.assertNoRecall(client, traceKey(product)) : undefined,
+      beforeUpdate: product.type === hotSale ? client => validateHotSale(client, { ...product, details })
+        : decisionChoice === recipeCompliance && product.type === recipeControl ? client => validateRecipeLot(client, product)
+        : action.guarded ? client => trace.assertNoRecall(client, traceKey(product)) : undefined,
       afterWrite: evidence?.afterWrite,
     };
     if (scan) Object.assign(decision, { source: 'scan', scanCheck: scan });
@@ -1392,17 +1508,16 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
       update['details.destination'] = decision.destination;
     }
     if (proposing) {
-      const requestId = newRecordId();
-      Object.assign(decision, { requestId, requestStatus: 'pending' });
       if (returned) decision.followupOf = returned.id;
-      const proposal = { ...decision, id: requestId, result: 'Onay bekliyor' };
+      const { proposal, log } = pendingDecision(decision);
       const change = {
-        $set: { proposal }, $push: { decisions: { ...decision, kind: 'proposal', result: 'Onay bekliyor' } },
+        $set: { proposal, ...(workflow && { details, status: operation.initial }), ...(workflow && evidence && { evidence: evidence.reference }) },
+        $push: { decisions: log },
       };
-      if (returned) change.$unset = { recheck: '' };
+      if (returned) change.$unset = { recheck: '', ...(workflow && !evidence && { evidence: '' }) };
       const saved = await records.updateOne({ ...filter, proposal: null }, change, writeOptions);
       if (!saved.matchedCount) throw new RequestError(409, 'Kayıt değişti veya bu kayıt için zaten bekleyen bir talep var.');
-      return requestId;
+      return proposal.id;
     }
     if (proposalId) {
       filter['proposal.id'] = proposalId;
@@ -1433,19 +1548,22 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
     const product = await records.findOne(filter);
     if (!product) throw new RequestError(404, 'Bekleyen talep bulunamadı.');
     requireEnabledOperation(product.type);
-    const { choice, kind, destination, actor, scanCheck, source, time: requestedAt } = product.proposal;
+    const { choice, kind, destination, actor, scanCheck, source, details, evidence, time: requestedAt } = product.proposal;
     if (body.outcome === 'approve') {
       await saveDecision(id, { choice, kind, destination, staff: session.email, reason }, session, body.proposalId);
       return;
     }
     const recheck = body.outcome === 'recheck';
     const time = new Date();
+    const resultLabel = recheck ? 'Ek kontrol istendi' : 'Reddedildi';
     const result = await records.updateOne(filter, {
       $unset: { proposal: '' },
-      ...(recheck && { $set: { recheck: { id: body.proposalId, actor, choice, kind, reason, source, time } } }),
-      $push: { decisions: { choice, reason, kind: 'review', result: recheck ? 'Ek kontrol istendi' : 'Reddedildi',
+      $set: { ...(operations[product.type].workflow && { status: resultLabel }),
+        ...(recheck && { recheck: { id: body.proposalId, actor, choice, kind, reason, source, time } }) },
+      $push: { decisions: { choice, reason, kind: 'review', result: resultLabel,
         actor: session.email, staff: session.email, requestedBy: actor, time, requestedAt,
         requestId: body.proposalId, requestStatus: recheck ? 'recheck' : 'rejected',
+        ...(details && { details }), ...(evidence && { evidence }),
         ...(source && { source }), ...(scanCheck && { source: 'scan', scanCheck }) } },
     });
     if (!result.matchedCount) throw new RequestError(409, 'Talep başka bir oturumda değerlendirildi.');
@@ -1519,9 +1637,31 @@ function createCore(database, challenge, { scanEnabled, crossDockEnabled, tester
       const product = await newProduct(body);
       product.storeId = session.role === 'admin' ? await requiredStore(body.storeId ?? session.storeId) : session.storeId;
       product.createdBy = session.email;
+      if (product.type === recipeControl) {
+        const catalog = await pilotCatalog.findOne({ _id: catalogKey(product) });
+        assertCurrentRecipe(catalog, product, body.recipeRevision);
+        product.details.recipe = catalog.recipe;
+        assertRecipeChecklist(product.details);
+      }
       const evidence = readEvidence(body.evidence, session);
       if (evidence) product.evidence = evidence.reference;
-      const result = await records.insertOne(product, evidence?.afterWrite);
+      if (operations[product.type].workflow) {
+        const reason = requiredText(body, 'reason', 'Personel açıklaması', 1000);
+        const { proposal, log } = pendingDecision({
+          time: product.createdAt, choice: workflowChoice(product.type, product.details), reason, details: product.details,
+          staff: session.displayName ?? session.email, actor: session.email, ...(evidence && { evidence: evidence.reference }),
+        });
+        product.proposal = proposal;
+        product.decisions.push(log);
+      }
+      const result = await records.insertOne(product, async (client, productId) => {
+        if (product.type === hotSale) await validateHotSale(client, product, true);
+        else if (product.type === recipeControl) {
+          if (product.proposal.choice === recipeCompliance) await validateRecipeLot(client, product);
+          assertCurrentRecipe(await lockedCatalog(client, product), product, body.recipeRevision);
+        } else await lockProductBarcode(client, product);
+        await evidence?.afterWrite(client, productId);
+      });
       json(response, 201, { id: result.insertedId });
       return;
     }

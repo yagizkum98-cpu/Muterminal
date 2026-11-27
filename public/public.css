@@ -90,7 +90,7 @@ a { color: var(--forest); text-underline-offset: .18em; }
 .modules-overview { padding-block: clamp(2.3rem, 5vw, 4rem); scroll-margin-top: .75rem; }
 .modules-overview h2 { margin: 0 0 1.15rem; font-size: clamp(1.85rem, 3.7vw, 2.7rem); line-height: 1.1; letter-spacing: -.045em; }
 .roadmap-nav {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .45rem; margin-bottom: 1.2rem;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .45rem; margin-bottom: 1.2rem;
   padding: .5rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--pale);
 }
 .roadmap-nav a {
@@ -177,7 +177,7 @@ a { color: var(--forest); text-underline-offset: .18em; }
   .hero-workflow { inset: auto .65rem .65rem; }
   .roadmap-groups, .roadmap-track .roadmap-module-list, .login-card { grid-template-columns: minmax(0, 1fr); }
   .roadmap-groups { grid-template-areas: "core" "pilot" "trace"; }
-  .roadmap-nav { gap: .17rem; }
+  .roadmap-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .17rem; }
   .roadmap-nav a { padding: .45rem .25rem; }
   .roadmap-nav strong { font-size: .82rem; line-height: 1.27; }
   .login-side p { margin-bottom: .65rem; }
